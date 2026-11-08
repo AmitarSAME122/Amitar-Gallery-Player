@@ -1,0 +1,43 @@
+name: Apply CI Fix (PowerShell)
+
+on:
+  workflow_dispatch:
+    # امکان اجرای دستی از تب Actions
+  schedule:
+    - cron: '0 2 * * *' # (اختیاری) اجرای خودکار هر روز ساعت ۲ بامداد UTC
+
+# حداقل دسترسی لازم در سطح workflow
+permissions:
+  contents: read # به‌طور پیش‌فرض فقط خواندن
+
+jobs:
+  run-fix:
+    runs-on: ubuntu-latest
+    # افزایش دسترسی فقط برای این job خاص
+    permissions:
+      contents: write # برای push کردن تغییرات به مخزن
+
+    steps:
+      - name: Checkout repository (branch Amitar)
+        uses: actions/checkout@v4
+        with:
+          ref: Amitar       # checkout کردن برنچ صحیح
+          fetch-depth: 0    # دریافت تاریخچه کامل (برای عملیات گیت)
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run PowerShell script
+        shell: pwsh # استفاده از PowerShell Core (چندسکویی)
+        run: |
+          # اسکریپت از روت مخزن اجرا می‌شود
+          ./APPLY-CI-FIX.ps1
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Apply CI fix (automated) [skip ci]"
+          branch: Amitar
+          # فقط فایل‌های تغییر یافته توسط اسکریپت را stage می‌کند
