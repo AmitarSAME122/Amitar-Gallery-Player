@@ -42,6 +42,8 @@ jobs:
           path: android/gradle/wrapper/gradle-wrapper.jar
           if-no-files-found: error
           retention-days: 1
+      - name: Install Python tooling test dependencies
+        run: python3 -m pip install --disable-pip-version-check --requirement tool/requirements-branding.txt
       - name: Check release version identity
         shell: bash
         run: |
