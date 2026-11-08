@@ -1,0 +1,81 @@
+name: amitar_gallery_player
+description: AmitarGalleryPlayer — a single-file Flutter media library and player.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.47.9'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # One playback engine; do not add media_kit_libs_audio alongside this bundle.
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+
+  # Real OS media-library scanning, thumbnails, saving and deletion on native targets.
+  photo_manager: ^3.12.0
+
+  # Real embedded metadata read/write where the platform and format permit it.
+  media_metadata: ^2.2.2
+
+  # File system access is mediated by native pickers / browser handles.
+  file_picker: ^13.3.2
+  cross_file: 0.3.5+5
+  universal_io: ^2.3.1
+  path: ^1.9.1
+  path_provider: ^2.1.6
+
+  # Image decoding and SVG rendering have separate, non-overlapping roles.
+  image: ^4.12.0
+  flutter_svg: ^2.3.2
+
+  # Durable media-library store and lightweight settings store.
+  hive_ce: ^2.23.1
+  hive_ce_flutter: ^2.5.0
+  shared_preferences: ^2.5.6
+
+dependency_overrides :
+  cross_file: ^0.4.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/AmitarGalleryPlayer.png
+    - assets/icons/app-icon-1024.png
+    - assets/icons/linux-256.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#070A19"
+  image_path: assets/icons/app-icon-1024.png
+  image_path_ios: assets/icons/ios-app-store-1024.png
+  image_path_ios_dark_transparent: assets/icons/ios-dark-transparent-1024.png
+  adaptive_icon_background: assets/icons/android-adaptive-background.png
+  adaptive_icon_foreground: assets/icons/android-adaptive-foreground.png
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: assets/icons/android-adaptive-monochrome.png
+  web:
+    generate: true
+    image_path: assets/icons/app-icon-1024.png
+    background_color: '#090B14'
+    theme_color: '#8B5CF6'
+  windows:
+    generate: true
+    image_path: assets/icons/app-icon-1024.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/icons/app-icon-1024.png
