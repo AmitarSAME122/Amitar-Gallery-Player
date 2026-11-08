@@ -87,6 +87,10 @@ python3 tool/build.py ios
 
 راهنمای کامل فارسی: [BUILD_GUIDE_FA.md](BUILD_GUIDE_FA.md)
 
+### دریافت امن Gradle Wrapper در CI
+
+فایل باینری `android/gradle/wrapper/gradle-wrapper.jar` عمداً در سورس نگهداری نمی‌شود. ابزار `tool/bootstrap_platforms.py` نسخهٔ مورد انتظار Gradle 8.14.6 را از commit ثابت مخزن رسمی Gradle دریافت می‌کند، SHA-256 را با مقدار منتشرشده توسط Gradle تطبیق می‌دهد و فقط پس از تأیید ساختار JAR آن را نصب می‌کند. در GitHub Actions، Job کیفیت فایل تأییدشده را به‌صورت artifact کوتاه‌عمر به Jobهای Linux، Windows و macOS می‌فرستد؛ هر Job پیش از ساخت دوباره آن را اعتبارسنجی می‌کند. Workflow اصلی پروژه فقط در `.github/workflows/build.yml` قرار دارد؛ برای جلوگیری از اجرای تکراری، Workflow دوم با نام مشابه نسازید.
+
 ## کنترل صحت فایل‌های منبع
 
 پس از تغییر فایل‌های پروژه، manifest را بازتولید و از ریشهٔ مخزن بررسی کنید:
@@ -130,5 +134,5 @@ GitHub Actions باید فعال باشد و `GITHUB_TOKEN` مجوز `contents: 
 
 نسخه‌های ثابت پروژه عبارت‌اند از JDK `17`، AGP `8.13.2`، Gradle Wrapper `8.14.6` و Kotlin Gradle Plugin `2.4.21`. فایل `android/settings.gradle.kts` شناسهٔ `com.android.application` را مستقیماً به ماژول رسمی `com.android.tools.build:gradle:<version>` نگاشت می‌کند تا حل افزونه به POM واسط plugin-marker وابسته نباشد؛ مخزن رسمی `google()` همچنان فعال است. در ویندوز، `tool\check_android_maven_windows.bat` دسترسی به POM اصلی AGP و POM واسط را آزمایش می‌کند. اگر POM اصلی قابل دریافت نباشد، باید DNS/Proxy/Firewall/TLS یا دسترسی به Google Maven اصلاح شود؛ در شبکه‌ای که mirror مورداعتماد دارد می‌توان متغیر `AMITAR_GOOGLE_MAVEN_MIRROR` را به آدرس HTTPS آن تنظیم کرد. تغییر نسخهٔ Java یا Gradle مشکل قطع دسترسی مخزن را حل نمی‌کند. پس از اصلاح دسترسی، یک‌بار از پوشهٔ `android` دستور `gradlew.bat --stop` و سپس `gradlew.bat --refresh-dependencies :app:assembleDebug` را اجرا کنید. KGP 2.4.21 طبق ماتریس رسمی با AGP 8.13.2 و Gradle 8.14.6 سازگار است. AGP 9.5 با KGP 2.4.21 در بازهٔ سازگاری کامل نیست و مهاجرت AGP 9 در Flutter به بررسی سازگاری Kotlin داخلی و تمام افزونه‌ها وابسته است؛ به همین دلیل در این نسخه از زنجیرهٔ سازگار AGP 8.13 استفاده می‌شود. Flutter پایدار `3.47.9` نسخهٔ Dart و تنظیمات SDK/NDK اندروید را مدیریت می‌کند. فقط از Gradle Wrapper خود پروژه استفاده کنید. فایل `android/local.properties` محلی و تولیدشده توسط Flutter است و در مخزن نگهداری نمی‌شود.
 
-برای امضای ناشر، `android/key.properties.example` را به `android/key.properties` کپی و با keystore خصوصی خود تکمیل کنید. بدون آن خروجی Release با گواهی debug ساخته می‌شود و برای انتشار فروشگاهی production-ready نیست. هیچ کلید یا keystore واقعی را commit نکنید.
+برای امضای ناشر، `android/key.properties.example` را به `android/key.properties` کپی و با keystore خصوصی خود تکمیل کنید. بدون آن خروجی Release با گواهی debug ساخته می‌شود و برای انتشار فروشگاهی production-ready نیست. هیچ کلید یا keystore واقعی را commit نکنید. برای امضای خودکار در GitHub Actions، هر چهار Secret مخزن یا Environment را با نام‌های `AMITAR_ANDROID_KEYSTORE_BASE64` (فایل JKS/PKCS12 به‌شکل Base64)، `AMITAR_ANDROID_STORE_PASSWORD`، `AMITAR_ANDROID_KEY_PASSWORD` و `AMITAR_ANDROID_KEY_ALIAS` تعریف کنید. فایل keystore فقط در پوشهٔ موقت runner رمزگشایی می‌شود؛ تعریف ناقص Secretها build را متوقف می‌کند. اگر هیچ‌کدام تنظیم نشوند، خروجی CI با کلید موقت debug و صرفاً برای QA ساخته می‌شود.
 

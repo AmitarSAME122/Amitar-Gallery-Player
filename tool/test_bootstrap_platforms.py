@@ -7,6 +7,7 @@ import plistlib
 import tempfile
 import unittest
 import zipfile
+import urllib.error
 from pathlib import Path
 from unittest import mock
 import xml.etree.ElementTree as ET
@@ -97,40 +98,81 @@ class BootstrapConfigurationTests(unittest.TestCase):
         self.assertIn("must use HTTPS", script)
         self.assertTrue((bootstrap_platforms.ROOT / "tool/check_android_maven_windows.bat").is_file())
 
+    @staticmethod
+    def _make_wrapper_jar_fixture() -> bytes:
+        payload_buffer = io.BytesIO()
+        with zipfile.ZipFile(payload_buffer, "w") as archive:
+            archive.writestr("org/gradle/wrapper/GradleWrapperMain.class", b"fixture")
+        return payload_buffer.getvalue()
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            self.close()
+
     def test_gradle_wrapper_download_is_sha256_verified_before_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             wrapper = root / "android/gradle/wrapper/gradle-wrapper.jar"
             wrapper.parent.mkdir(parents=True)
-            wrapper.write_bytes(b"untrusted-old-wrapper")
+            old_bytes = b"untrusted-old-wrapper"
+            wrapper.write_bytes(old_bytes)
 
-            payload_buffer = io.BytesIO()
-            with zipfile.ZipFile(payload_buffer, "w") as archive:
-                archive.writestr("org/gradle/wrapper/GradleWrapperMain.class", b"fixture")
-            payload = payload_buffer.getvalue()
+            payload = self._make_wrapper_jar_fixture()
             expected_hash = hashlib.sha256(payload).hexdigest()
-
-            class FakeResponse(io.BytesIO):
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, exc_type, exc, traceback):
-                    self.close()
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
                  mock.patch.object(bootstrap_platforms, "GRADLE_WRAPPER_SHA256", expected_hash), \
-                 mock.patch.object(bootstrap_platforms.urllib.request, "urlopen", return_value=FakeResponse(payload)):
+                 mock.patch.object(
+                     bootstrap_platforms.urllib.request,
+                     "urlopen",
+                     return_value=self.FakeResponse(payload),
+                 ) as urlopen:
                 bootstrap_platforms.ensure_verified_gradle_wrapper_jar()
 
             self.assertEqual(wrapper.read_bytes(), payload)
+            self.assertEqual(urlopen.call_args.args[0].full_url, bootstrap_platforms.GRADLE_WRAPPER_URL)
             self.assertFalse(wrapper.with_name(wrapper.name + ".download").exists())
+
+    def test_gradle_wrapper_download_retries_transient_network_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            wrapper = root / "android/gradle/wrapper/gradle-wrapper.jar"
+            payload = self._make_wrapper_jar_fixture()
+            expected_hash = hashlib.sha256(payload).hexdigest()
+
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "GRADLE_WRAPPER_SHA256", expected_hash), \
+                 mock.patch.object(
+                     bootstrap_platforms.urllib.request,
+                     "urlopen",
+                     side_effect=[
+                         urllib.error.URLError("temporary DNS failure"),
+                         self.FakeResponse(payload),
+                     ],
+                 ) as urlopen, \
+                 mock.patch.object(bootstrap_platforms.time, "sleep") as sleep:
+                bootstrap_platforms.ensure_verified_gradle_wrapper_jar()
+
+            self.assertEqual(urlopen.call_count, 2)
+            sleep.assert_called_once_with(1)
+            self.assertEqual(wrapper.read_bytes(), payload)
+
+    def test_gradle_wrapper_url_is_pinned_to_the_checksum_matching_gradle_commit(self) -> None:
+        self.assertEqual(bootstrap_platforms.GRADLE_WRAPPER_SOURCE_COMMIT, "c27417f")
+        self.assertIn(
+            "/gradle/gradle/c27417f/gradle/wrapper/gradle-wrapper.jar",
+            bootstrap_platforms.GRADLE_WRAPPER_URL,
+        )
 
     def test_verified_local_gradle_wrapper_is_reused_without_network(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             wrapper = root / "android/gradle/wrapper/gradle-wrapper.jar"
             wrapper.parent.mkdir(parents=True)
-            verified_payload = b"already-verified-wrapper"
+            verified_payload = self._make_wrapper_jar_fixture()
             wrapper.write_bytes(verified_payload)
             expected_hash = hashlib.sha256(verified_payload).hexdigest()
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \

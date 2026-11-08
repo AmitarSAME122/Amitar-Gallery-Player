@@ -53,6 +53,9 @@ class ProjectInvariantTests(unittest.TestCase):
         bootstrap = (ROOT / "tool/bootstrap_platforms.py").read_text(encoding="utf-8")
         self.assertIn("GRADLE_WRAPPER_SHA256 = \"ad16bca46cb71bb5887c546860d93992aeee35c1fdaf4a242b0a612375d937e0\"", bootstrap)
         self.assertIn("ensure_verified_gradle_wrapper_jar()", bootstrap)
+        self.assertIn("GRADLE_WRAPPER_SOURCE_COMMIT = \"c27417f\"", bootstrap)
+        self.assertIn("raw.githubusercontent.com/gradle/gradle/", bootstrap)
+        self.assertNotIn("services.gradle.org/distributions/gradle-8.14.6-wrapper.jar", bootstrap)
         build_entry = (ROOT / "tool/build.py").read_text(encoding="utf-8")
         self.assertIn("tool/verify_platform_icons.py", build_entry)
         self.assertLess(build_entry.index("dart\", \"run\", \"flutter_launcher_icons"), build_entry.index("tool/verify_platform_icons.py"))
@@ -61,6 +64,12 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertIn('applicationId = "com.amitar.amitar_gallery_player"', app)
         self.assertNotIn("maven.aliyun.com", settings + app)
         self.assertNotIn("jitpack.io", settings + app)
+
+    def test_unix_gradle_wrapper_keeps_its_executable_bit(self) -> None:
+        import os
+        wrapper = ROOT / "android/gradlew"
+        self.assertTrue(wrapper.is_file())
+        self.assertTrue(os.access(wrapper, os.X_OK), "android/gradlew must be executable on Unix hosts")
 
     def test_android_build_refuses_missing_or_unverified_gradle_wrapper(self) -> None:
         build = (ROOT / "tool/build.py").read_text(encoding="utf-8")
@@ -81,6 +90,24 @@ class ProjectInvariantTests(unittest.TestCase):
         script = (ROOT / "tool/setup_android_jdk_windows.ps1").read_text(encoding="utf-8")
         self.assertIn("flutter doctor -v", script)
         self.assertIn("-eq 17", script)
+
+    def test_ci_android_publisher_signing_is_optional_and_secret_only(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        for secret in (
+            "AMITAR_ANDROID_KEYSTORE_BASE64",
+            "AMITAR_ANDROID_STORE_PASSWORD",
+            "AMITAR_ANDROID_KEY_PASSWORD",
+            "AMITAR_ANDROID_KEY_ALIAS",
+        ):
+            self.assertIn(secret, workflow)
+        self.assertIn("$RUNNER_TEMP/amitar-gallery-player-release.jks", workflow)
+        self.assertIn('"$configured" -ne 4', workflow)
+        self.assertIn("android/key.properties", workflow)
+        guide = (ROOT / "README.fa.md").read_text(encoding="utf-8")
+        self.assertIn("AMITAR_ANDROID_KEYSTORE_BASE64", guide)
+        gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("android/key.properties", gitignore)
+        self.assertIn("*.jks", gitignore)
 
     def test_no_personal_android_sdk_path_is_committed(self) -> None:
         local_properties = ROOT / "android/local.properties"
@@ -142,6 +169,15 @@ class ProjectInvariantTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("dart format --output=none --set-exit-if-changed lib test", workflow)
         self.assertIn("tool/build.py all --skip-bootstrap --skip-checks", workflow)
+
+    def test_ci_triggers_on_project_branch_and_transfers_verified_wrapper(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("branches: [ Amitar, main, master ]", workflow)
+        self.assertEqual(workflow.count("name: agp-gradle-wrapper-8.14.6"), 4)
+        self.assertEqual(workflow.count("Download the checksum-verified Gradle Wrapper JAR"), 3)
+        self.assertIn("Upload the verified Gradle Wrapper JAR for native build jobs", workflow)
+        self.assertIn("path: android/gradle/wrapper/gradle-wrapper.jar", workflow)
+        self.assertIn("timeout-minutes: 120", workflow)
 
     def test_dependabot_covers_pub_and_github_actions(self) -> None:
         config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")

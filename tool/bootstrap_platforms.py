@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -17,8 +18,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORMS = "android,ios,web,windows,macos,linux"
 APP_ENTRYPOINT = ROOT / "lib/AmitarGalleryPlayer.dart"
-GRADLE_WRAPPER_URL = "https://services.gradle.org/distributions/gradle-8.14.6-wrapper.jar"
+# Gradle 8.14.6's published wrapper checksum does not match the wrapper JAR
+# stored at the v8.14.6 tag. Gradle's release8x branch was updated in commit
+# c27417f with the exact release JAR; pin that immutable source and verify it
+# against Gradle's published SHA-256 before it can enter a build.
+GRADLE_WRAPPER_SOURCE_COMMIT = "c27417f"
+GRADLE_WRAPPER_URL = (
+    "https://raw.githubusercontent.com/gradle/gradle/"
+    f"{GRADLE_WRAPPER_SOURCE_COMMIT}/gradle/wrapper/gradle-wrapper.jar"
+)
 GRADLE_WRAPPER_SHA256 = "ad16bca46cb71bb5887c546860d93992aeee35c1fdaf4a242b0a612375d937e0"
+GRADLE_WRAPPER_DOWNLOAD_TIMEOUT_SECONDS = 60
+GRADLE_WRAPPER_MAX_BYTES = 1024 * 1024
+GRADLE_WRAPPER_DOWNLOAD_ATTEMPTS = 3
+GRADLE_WRAPPER_RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
 ANDROID_PERMISSIONS = (
     '    <uses-permission android:name="android.permission.INTERNET" />',
     '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
@@ -109,42 +122,104 @@ def write_if_changed(path: Path, content: str) -> None:
         path.write_text(content, encoding="utf-8")
 
 
-def ensure_verified_gradle_wrapper_jar() -> None:
-    """Fetch the official Gradle 8.14.6 wrapper JAR and verify it before use.
+def _is_verified_gradle_wrapper_jar(path: Path) -> bool:
+    """Return True only for the exact, structurally valid Gradle 8.14.6 JAR."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != GRADLE_WRAPPER_SHA256:
+            return False
+        with zipfile.ZipFile(path) as archive:
+            return "org/gradle/wrapper/GradleWrapperMain.class" in archive.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return False
 
-    The repository intentionally does not trust or ship an older generated
-    wrapper bootstrap JAR. The official checksum is published by Gradle.
+
+def ensure_verified_gradle_wrapper_jar() -> None:
+    """Install the official Gradle 8.14.6 Wrapper JAR and verify it before use.
+
+    Gradle publishes the wrapper JAR checksum, but the 8.14.6 JAR at the
+    ``v8.14.6`` source tag differs from that published release checksum. The
+    matching release JAR is present in Gradle commit ``c27417f``. Downloading
+    from that immutable source avoids the non-existent standalone distribution
+    JAR URL; the SHA-256 check remains the trust boundary.
+
+    A valid existing JAR is reused. A failed download or validation never
+    replaces an existing file with untrusted bytes.
     """
     wrapper_jar = ROOT / "android/gradle/wrapper/gradle-wrapper.jar"
-    if wrapper_jar.is_file():
-        existing_hash = hashlib.sha256(wrapper_jar.read_bytes()).hexdigest()
-        if existing_hash == GRADLE_WRAPPER_SHA256:
-            return
+    if _is_verified_gradle_wrapper_jar(wrapper_jar):
+        print("Verified Gradle 8.14.6 Wrapper JAR already exists.", flush=True)
+        return
 
     wrapper_jar.parent.mkdir(parents=True, exist_ok=True)
     temporary = wrapper_jar.with_name(wrapper_jar.name + ".download")
+    request = urllib.request.Request(
+        GRADLE_WRAPPER_URL,
+        headers={"User-Agent": "AmitarGalleryPlayer-build-bootstrap/2.0"},
+    )
+
     try:
-        request = urllib.request.Request(
-            GRADLE_WRAPPER_URL,
-            headers={"User-Agent": "AmitarGalleryPlayer-build-bootstrap/1.0"},
-        )
-        with urllib.request.urlopen(request, timeout=45) as response:
-            payload = response.read(1024 * 1024 + 1)
-        if not payload or len(payload) > 1024 * 1024:
-            raise RuntimeError("Downloaded Gradle Wrapper JAR has an invalid size.")
+        payload: bytes | None = None
+        last_network_error: BaseException | None = None
+        for attempt in range(1, GRADLE_WRAPPER_DOWNLOAD_ATTEMPTS + 1):
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=GRADLE_WRAPPER_DOWNLOAD_TIMEOUT_SECONDS
+                ) as response:
+                    payload = response.read(GRADLE_WRAPPER_MAX_BYTES + 1)
+                break
+            except urllib.error.HTTPError as error:
+                if (
+                    error.code not in GRADLE_WRAPPER_RETRYABLE_HTTP_STATUS
+                    or attempt == GRADLE_WRAPPER_DOWNLOAD_ATTEMPTS
+                ):
+                    raise
+                last_network_error = error
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+                if attempt == GRADLE_WRAPPER_DOWNLOAD_ATTEMPTS:
+                    raise
+                last_network_error = error
+
+            delay_seconds = min(2 ** (attempt - 1), 4)
+            print(
+                f"Gradle Wrapper download attempt {attempt} failed; "
+                f"retrying in {delay_seconds}s: {last_network_error}",
+                flush=True,
+            )
+            time.sleep(delay_seconds)
+
+        if payload is None:
+            raise RuntimeError(
+                f"Gradle Wrapper download produced no response: {last_network_error}"
+            )
+        if not payload or len(payload) > GRADLE_WRAPPER_MAX_BYTES:
+            raise RuntimeError(
+                "Downloaded Gradle Wrapper JAR has an invalid size "
+                f"({len(payload)} bytes; expected 1..{GRADLE_WRAPPER_MAX_BYTES})."
+            )
+
         actual_hash = hashlib.sha256(payload).hexdigest()
         if actual_hash != GRADLE_WRAPPER_SHA256:
             raise RuntimeError(
                 "Downloaded Gradle Wrapper JAR failed SHA-256 verification: "
                 f"expected {GRADLE_WRAPPER_SHA256}, got {actual_hash}."
             )
+
         temporary.write_bytes(payload)
-        if not zipfile.is_zipfile(temporary):
-            raise RuntimeError("Downloaded Gradle Wrapper JAR is not a valid ZIP/JAR archive.")
-        with zipfile.ZipFile(temporary) as archive:
-            if "org/gradle/wrapper/GradleWrapperMain.class" not in archive.namelist():
-                raise RuntimeError("Downloaded JAR is missing GradleWrapperMain.class.")
+        if not _is_verified_gradle_wrapper_jar(temporary):
+            raise RuntimeError(
+                "Downloaded Gradle Wrapper JAR is not a valid archive or "
+                "does not contain GradleWrapperMain.class."
+            )
+
         temporary.replace(wrapper_jar)
+        print(
+            "Installed and SHA-256 verified Gradle 8.14.6 Wrapper JAR "
+            f"from Gradle commit {GRADLE_WRAPPER_SOURCE_COMMIT}.",
+            flush=True,
+        )
     except (OSError, urllib.error.URLError, zipfile.BadZipFile, RuntimeError) as error:
         try:
             temporary.unlink(missing_ok=True)
@@ -152,8 +227,9 @@ def ensure_verified_gradle_wrapper_jar() -> None:
             pass
         raise RuntimeError(
             "Could not install the verified Gradle 8.14.6 Wrapper JAR. "
-            "Check network access to services.gradle.org and rerun "
-            "`python tool/bootstrap_platforms.py`; an unverified wrapper will not be used. "
+            f"Source: {GRADLE_WRAPPER_URL}. Check outbound access to "
+            "raw.githubusercontent.com and rerun `python tool/bootstrap_platforms.py`. "
+            "An unverified or checksum-mismatched Wrapper will never be used. "
             f"Details: {error}"
         ) from error
 

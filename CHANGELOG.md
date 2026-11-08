@@ -5,7 +5,7 @@
 - Set the public release identity to `1.0.0+1` across Dart, pubspec, Windows installer and build validation.
 - Standardized the main application source at `lib/AmitarGalleryPlayer.dart` and pass it explicitly to every Flutter build.
 - Added platform icon sources: Android adaptive foreground and monochrome variants, iOS/macOS/Windows/Web icon source sizes, ICO and Linux PNG artwork.
-- Added a Persian A3 presentation poster in PDF and 200-DPI PNG formats.
+- Added a Persian A3 presentation poster in PDF and 300-DPI PNG formats.
 - Added cross-platform build orchestration for Android, Web, Linux, Windows, macOS and iOS validation.
 - Repaired the Flutter Android Gradle plugin wiring, pinned JDK 17 / AGP 8.13.2 / Kotlin Gradle Plugin 2.4.21, upgraded to Gradle 8.14.6, and pinned official distribution and Wrapper JAR SHA-256 values.
 - Replaced the Android placeholder package ID with `com.amitar.amitar_gallery_player` and added optional publisher-keystore signing without committing secrets.
