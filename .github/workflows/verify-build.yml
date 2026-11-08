@@ -2,9 +2,16 @@ name: Verify and build AmitarGalleryPlayer
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    # Run CI on the repository's default branch (currently Amitar) and on
+    # every other branch, without hard-coding main/master.
+    branches:
+      - '**'
+    # Publish a GitHub Release only for version tags matching v*.
+    tags:
+      - 'v*'
   pull_request:
+    branches:
+      - '**'
   workflow_dispatch:
 
 permissions:
@@ -18,44 +25,60 @@ jobs:
   quality:
     name: Analyze and regression tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v7.0.1
+
       - name: Set up Java for Android tooling
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
-          flutter-version: '3.47'
+          flutter-version: '3.47.9'
           cache: true
+
       - name: Generate platform host projects and apply permissions
         run: python3 tool/bootstrap_platforms.py
+
       - name: Check release version identity
         shell: bash
         run: |
+          set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             python3 tool/check_release_version.py --tag "${GITHUB_REF_NAME}"
           else
             python3 tool/check_release_version.py
           fi
+
       - name: Test platform bootstrap tooling
         run: python3 -m unittest discover -s tool -p 'test_*.py' -v
-      - name: Resolve dependencies
-        run: flutter pub get
-      - name: Generate and validate app icons
+
+      - name: Resolve dependencies from the committed lockfile
+        run: flutter pub get --enforce-lockfile
+
+      - name: Generate app icons
         run: dart run flutter_launcher_icons
-      - name: Check Dart formatting without mutating the checkout
+
+      - name: Validate generated platform icons
+        run: python3 tool/verify_platform_icons.py
+
+      - name: Check Dart formatting without modifying files
         run: dart format --output=none --set-exit-if-changed lib test
+
       - name: Static analysis
         run: flutter analyze
+
       - name: Regression tests
         run: flutter test --reporter expanded
-      - name: Share the resolved dependency lock with native build jobs
-        uses: actions/upload-artifact@v7.0.1
+
+      - name: Share the tested dependency lock with native build jobs
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: agp-pubspec-lock
           path: pubspec.lock
@@ -63,39 +86,62 @@ jobs:
           retention-days: 1
 
   linux-android-web:
-    name: Linux + Android + Web release-mode builds
+    name: Linux, Android and Web release builds
     needs: quality
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-java@v6
+      - name: Checkout source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Java for Android tooling
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@v2.23.0
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
-          flutter-version: '3.47'
+          flutter-version: '3.47.9'
           cache: true
+
       - name: Install Linux desktop build dependencies
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libmpv-dev mpv
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libmpv-dev \
+            mpv
+
       - name: Generate platform hosts
         run: python3 tool/bootstrap_platforms.py
-      - name: Download the tested dependency lock
+
+      - name: Download the dependency lock tested by the quality job
         uses: actions/download-artifact@v8.0.2
         with:
           name: agp-pubspec-lock
           path: .
-      - name: Resolve dependencies from the tested lock
+
+      - name: Resolve dependencies from the tested lockfile
         run: flutter pub get --enforce-lockfile
+
       - name: Build Android, Web and Linux
         run: python3 tool/build.py all --skip-bootstrap --skip-checks
-      - name: Finalize Linux/Android/Web checksums
+
+      - name: Finalize Linux, Android and Web manifests and checksums
         run: python3 tool/finalize_artifacts.py --label linux-android-web
-      - name: Upload verified build outputs
-        uses: actions/upload-artifact@v7.0.1
+
+      - name: Upload verified Linux, Android and Web outputs
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: AmitarGalleryPlayer-linux-android-web
           path: dist/
@@ -103,40 +149,52 @@ jobs:
           retention-days: 30
 
   windows:
-    name: Windows desktop release-mode build
+    name: Windows desktop release build
     needs: quality
     runs-on: windows-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: subosito/flutter-action@v2.23.0
+      - name: Checkout source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
-          flutter-version: '3.47'
+          flutter-version: '3.47.9'
           cache: true
+
       - name: Install Inno Setup
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           choco install innosetup --yes --no-progress
-          "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          'C:\Program Files (x86)\Inno Setup 6' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Generate platform hosts
         shell: pwsh
         run: python tool/bootstrap_platforms.py
-      - name: Download the tested dependency lock
+
+      - name: Download the dependency lock tested by the quality job
         uses: actions/download-artifact@v8.0.2
         with:
           name: agp-pubspec-lock
           path: .
-      - name: Resolve dependencies from the tested lock
+
+      - name: Resolve dependencies from the tested lockfile
         shell: pwsh
         run: flutter pub get --enforce-lockfile
-      - name: Build Windows installer and portable bundle
+
+      - name: Build Windows installer and portable package
         shell: pwsh
         run: python tool/build.py windows --skip-bootstrap --skip-checks
-      - name: Finalize Windows checksums
+
+      - name: Finalize Windows manifest and checksums
         shell: pwsh
         run: python tool/finalize_artifacts.py --label windows
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v7.0.1
+
+      - name: Upload verified Windows outputs
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: AmitarGalleryPlayer-windows
           path: dist/
@@ -147,30 +205,41 @@ jobs:
     name: macOS and unsigned iOS build validation
     needs: quality
     runs-on: macos-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: subosito/flutter-action@v2.23.0
+      - name: Checkout source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
-          flutter-version: '3.47'
+          flutter-version: '3.47.9'
           cache: true
+
       - name: Generate platform hosts
         run: python3 tool/bootstrap_platforms.py
-      - name: Download the tested dependency lock
+
+      - name: Download the dependency lock tested by the quality job
         uses: actions/download-artifact@v8.0.2
         with:
           name: agp-pubspec-lock
           path: .
-      - name: Resolve dependencies from the tested lock
+
+      - name: Resolve dependencies from the tested lockfile
         run: flutter pub get --enforce-lockfile
+
       - name: Build macOS application bundle
         run: python3 tool/build.py macos --skip-bootstrap --skip-checks
-      - name: Build unsigned iOS application bundle
+
+      - name: Build unsigned iOS validation bundle
         run: python3 tool/build.py ios --skip-bootstrap --skip-checks --keep-dist
-      - name: Finalize Apple checksums
+
+      - name: Finalize Apple manifests and checksums
         run: python3 tool/finalize_artifacts.py --label apple
-      - name: Upload Apple build validation outputs
-        uses: actions/upload-artifact@v7.0.1
+
+      - name: Upload Apple build-validation outputs
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: AmitarGalleryPlayer-apple-unsigned
           path: dist/
@@ -180,48 +249,87 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release assets
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: [linux-android-web, windows, apple]
+    needs:
+      - linux-android-web
+      - windows
+      - apple
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v7.0.1
+
       - name: Download all platform build artifacts
         uses: actions/download-artifact@v8.0.2
         with:
           pattern: AmitarGalleryPlayer-*
           path: release-assets
           merge-multiple: true
+
       - name: Download the exact tested dependency lock
         uses: actions/download-artifact@v8.0.2
         with:
           name: agp-pubspec-lock
           path: resolved-lock
-      - name: Include dependency lock in the release assets
+
+      - name: Include dependency lock in release assets
         shell: bash
-        run: cp resolved-lock/pubspec.lock release-assets/pubspec.lock
-      - name: Verify and create release-wide SHA-256 manifest
+        run: |
+          set -euo pipefail
+          test -s resolved-lock/pubspec.lock
+          mkdir -p release-assets
+          cp resolved-lock/pubspec.lock release-assets/pubspec.lock
+
+      - name: Verify platform checksums and create release-wide SHA-256 manifest
         shell: bash
         run: |
           set -euo pipefail
           cd release-assets
+
           test -n "$(find . -maxdepth 1 -type f -name 'AmitarGalleryPlayer-*' -print -quit)"
-          for f in SHA256SUMS-*.txt; do test -f "$f"; sha256sum --check "$f"; done
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+
+          shopt -s nullglob
+          manifests=(SHA256SUMS-*.txt)
+          if (( ${#manifests[@]} == 0 )); then
+            echo 'No platform SHA256SUMS-*.txt manifests were found.' >&2
+            exit 1
+          fi
+
+          for manifest in "${manifests[@]}"; do
+            sha256sum --check "$manifest"
+          done
+
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\0' \
+            | sort -z \
+            | xargs -0 -r sha256sum > SHA256SUMS.txt
+
+          test -s SHA256SUMS.txt
           sha256sum --check SHA256SUMS.txt
-      - name: Publish release and attach installers
+
+      - name: Publish release and attach verified installers
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if (( ${#assets[@]} == 0 )); then
+            echo 'No release assets were produced.' >&2
+            exit 1
+          fi
+
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
               --verify-tag \
               --generate-notes \
               --title "AmitarGalleryPlayer ${GITHUB_REF_NAME}"
           else
             SNAPSHOT_TAG="snapshot-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}"
-            gh release create "${SNAPSHOT_TAG}" release-assets/* \
+            gh release create "${SNAPSHOT_TAG}" "${assets[@]}" \
               --target "${GITHUB_SHA}" \
               --generate-notes \
               --title "AmitarGalleryPlayer ${SNAPSHOT_TAG}"
