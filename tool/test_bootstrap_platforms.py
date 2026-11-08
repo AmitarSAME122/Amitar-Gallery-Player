@@ -279,6 +279,70 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertEqual(metadata.read_bytes(), original)
 
 
+    def test_main_restores_metadata_after_all_bootstrap_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+            app = root / "lib/AmitarGalleryPlayer.dart"
+            app.parent.mkdir(parents=True)
+            app.write_text("// fixture\n", encoding="utf-8")
+            metadata = root / ".metadata"
+            original = b"tracked metadata before complete bootstrap\n"
+            metadata.write_bytes(original)
+            for platform in bootstrap_platforms.PLATFORMS.split(","):
+                (root / platform).mkdir(parents=True, exist_ok=True)
+
+            def mutate_metadata() -> None:
+                metadata.write_bytes(b"metadata changed by a later platform stage\n")
+
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "APP_ENTRYPOINT", app), \
+                 mock.patch.object(bootstrap_platforms.shutil, "which", return_value="/usr/bin/flutter"), \
+                 mock.patch.object(bootstrap_platforms.sys, "argv", ["bootstrap_platforms.py"]), \
+                 mock.patch.object(bootstrap_platforms, "run_flutter_create_preserving_metadata"), \
+                 mock.patch.object(bootstrap_platforms, "remove_generated_default_entrypoints"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
+                 mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
+                 mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_metadata):
+                self.assertEqual(bootstrap_platforms.main(), 0)
+
+            self.assertEqual(metadata.read_bytes(), original)
+
+    def test_main_restores_metadata_when_a_later_bootstrap_stage_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+            app = root / "lib/AmitarGalleryPlayer.dart"
+            app.parent.mkdir(parents=True)
+            app.write_text("// fixture\n", encoding="utf-8")
+            metadata = root / ".metadata"
+            original = b"tracked metadata before failing bootstrap\n"
+            metadata.write_bytes(original)
+            for platform in bootstrap_platforms.PLATFORMS.split(","):
+                (root / platform).mkdir(parents=True, exist_ok=True)
+
+            def mutate_then_fail() -> None:
+                metadata.write_bytes(b"partially changed metadata\n")
+                raise RuntimeError("simulated later platform configuration failure")
+
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "APP_ENTRYPOINT", app), \
+                 mock.patch.object(bootstrap_platforms.shutil, "which", return_value="/usr/bin/flutter"), \
+                 mock.patch.object(bootstrap_platforms.sys, "argv", ["bootstrap_platforms.py"]), \
+                 mock.patch.object(bootstrap_platforms, "run_flutter_create_preserving_metadata"), \
+                 mock.patch.object(bootstrap_platforms, "remove_generated_default_entrypoints"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
+                 mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
+                 mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_then_fail):
+                with self.assertRaisesRegex(RuntimeError, "simulated later platform configuration failure"):
+                    bootstrap_platforms.main()
+
+            self.assertEqual(metadata.read_bytes(), original)
+
     def test_generated_main_entrypoint_is_removed_but_user_main_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

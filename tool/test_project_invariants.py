@@ -192,6 +192,14 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"actions/(?:checkout|setup-java|upload-artifact|download-artifact)@v\d+\s")
 
 
+    def test_quality_job_restores_tracked_metadata_before_source_manifest_tests(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        bootstrap = workflow.index("run: python3 tool/bootstrap_platforms.py")
+        restore = workflow.index("git restore --source=HEAD --worktree -- .metadata")
+        python_tests = workflow.index("python3 -m unittest discover -s tool -p 'test_*.py' -v")
+        self.assertLess(bootstrap, restore)
+        self.assertLess(restore, python_tests)
+
     def test_ci_formatting_is_non_mutating_and_linux_bootstrap_is_not_repeated(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("dart format --output=none --set-exit-if-changed lib test", workflow)

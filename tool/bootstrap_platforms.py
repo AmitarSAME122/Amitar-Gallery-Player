@@ -534,14 +534,29 @@ def configure_linux_icon() -> None:
     runner.write_text(content, encoding="utf-8")
 
 
+def _restore_metadata_snapshot(metadata_path: Path, original_metadata: bytes | None) -> None:
+    """Atomically restore the exact tracked Flutter metadata bytes, if present."""
+    if original_metadata is None:
+        return
+    if metadata_path.is_file() and metadata_path.read_bytes() == original_metadata:
+        return
+
+    temporary_path = metadata_path.with_name(f".{metadata_path.name}.restore.tmp")
+    try:
+        temporary_path.write_bytes(original_metadata)
+        temporary_path.replace(metadata_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
 def run_flutter_create_preserving_metadata() -> None:
     """Generate platform hosts without rewriting tracked project metadata.
 
     `flutter create` may update `.metadata` to the exact revision of the SDK
-    installed on the runner. That file is part of the checked-in source
-    manifest, so platform bootstrapping must leave its committed bytes intact.
-    Restore it even when Flutter exits with an error, keeping the worktree
-    deterministic and avoiding a misleading checksum failure in later tests.
+    installed on the runner. Restore its original bytes even when Flutter exits
+    with an error. `main()` also guards the complete bootstrap lifecycle because
+    a later host-configuration step must not alter this tracked source file.
     """
     metadata_path = ROOT / ".metadata"
     original_metadata = metadata_path.read_bytes() if metadata_path.is_file() else None
@@ -552,9 +567,7 @@ def run_flutter_create_preserving_metadata() -> None:
             f"--platforms={PLATFORMS}", "--no-pub", ".",
         ])
     finally:
-        if original_metadata is not None:
-            if not metadata_path.is_file() or metadata_path.read_bytes() != original_metadata:
-                metadata_path.write_bytes(original_metadata)
+        _restore_metadata_snapshot(metadata_path, original_metadata)
 
 
 def remove_generated_default_entrypoints(*, had_main: bool, had_widget_test: bool) -> None:
@@ -574,28 +587,37 @@ def main() -> int:
 
     if not (ROOT / "pubspec.yaml").is_file() or not APP_ENTRYPOINT.is_file():
         parser.error("The project must contain pubspec.yaml and lib/AmitarGalleryPlayer.dart.")
-    if not args.skip_host_generation:
-        if shutil.which("flutter") is None:
-            print("ERROR: Flutter SDK is required. Install Flutter 3.47.9 or newer stable and add flutter/bin to PATH.", file=sys.stderr)
-            return 2
-        had_main = (ROOT / "lib/main.dart").exists()
-        had_widget_test = (ROOT / "test/widget_test.dart").exists()
-        run_flutter_create_preserving_metadata()
-        remove_generated_default_entrypoints(
-            had_main=had_main,
-            had_widget_test=had_widget_test,
-        )
-    ensure_android_manifest()
-    configure_android_gradle()
-    ensure_verified_gradle_wrapper_jar()
-    configure_apple_hosts()
-    configure_linux_icon()
-    missing = [name for name in PLATFORMS.split(",") if not (ROOT / name).is_dir()]
-    if missing:
-        raise RuntimeError("Platform host generation incomplete: " + ", ".join(missing))
-    print("Platform hosts and Android Gradle Wrapper are configured and verified.")
-    print("Note: host generation does not install platform SDKs, signing certificates or native build tools.")
-    return 0
+
+    # Guard the entire operation. The inner Flutter-create guard handles the
+    # scaffold command itself; this outer guard also protects against future
+    # platform-specific configuration code or tooling touching .metadata later.
+    metadata_path = ROOT / ".metadata"
+    original_metadata = metadata_path.read_bytes() if metadata_path.is_file() else None
+    try:
+        if not args.skip_host_generation:
+            if shutil.which("flutter") is None:
+                print("ERROR: Flutter SDK is required. Install Flutter 3.47.9 or newer stable and add flutter/bin to PATH.", file=sys.stderr)
+                return 2
+            had_main = (ROOT / "lib/main.dart").exists()
+            had_widget_test = (ROOT / "test/widget_test.dart").exists()
+            run_flutter_create_preserving_metadata()
+            remove_generated_default_entrypoints(
+                had_main=had_main,
+                had_widget_test=had_widget_test,
+            )
+        ensure_android_manifest()
+        configure_android_gradle()
+        ensure_verified_gradle_wrapper_jar()
+        configure_apple_hosts()
+        configure_linux_icon()
+        missing = [name for name in PLATFORMS.split(",") if not (ROOT / name).is_dir()]
+        if missing:
+            raise RuntimeError("Platform host generation incomplete: " + ", ".join(missing))
+        print("Platform hosts and Android Gradle Wrapper are configured and verified.")
+        print("Note: host generation does not install platform SDKs, signing certificates or native build tools.")
+        return 0
+    finally:
+        _restore_metadata_snapshot(metadata_path, original_metadata)
 
 
 if __name__ == "__main__":
