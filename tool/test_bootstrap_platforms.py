@@ -243,6 +243,42 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertIn("MACOSX_DEPLOYMENT_TARGET = 12.0;", text)
 
 
+    def test_flutter_create_preserves_tracked_metadata_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            metadata = root / ".metadata"
+            original = b"tracked flutter metadata\n"
+            metadata.write_bytes(original)
+
+            def fake_run(command: list[str]) -> None:
+                self.assertEqual(command[0:2], ["flutter", "create"])
+                metadata.write_bytes(b"runner-specific generated metadata\n")
+
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "run", side_effect=fake_run):
+                bootstrap_platforms.run_flutter_create_preserving_metadata()
+
+            self.assertEqual(metadata.read_bytes(), original)
+
+    def test_flutter_create_restores_tracked_metadata_when_command_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            metadata = root / ".metadata"
+            original = b"tracked flutter metadata\n"
+            metadata.write_bytes(original)
+
+            def fake_run(command: list[str]) -> None:
+                metadata.write_bytes(b"partially generated metadata\n")
+                raise RuntimeError("simulated flutter create failure")
+
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "run", side_effect=fake_run):
+                with self.assertRaisesRegex(RuntimeError, "simulated flutter create failure"):
+                    bootstrap_platforms.run_flutter_create_preserving_metadata()
+
+            self.assertEqual(metadata.read_bytes(), original)
+
+
     def test_generated_main_entrypoint_is_removed_but_user_main_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

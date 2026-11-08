@@ -534,6 +534,29 @@ def configure_linux_icon() -> None:
     runner.write_text(content, encoding="utf-8")
 
 
+def run_flutter_create_preserving_metadata() -> None:
+    """Generate platform hosts without rewriting tracked project metadata.
+
+    `flutter create` may update `.metadata` to the exact revision of the SDK
+    installed on the runner. That file is part of the checked-in source
+    manifest, so platform bootstrapping must leave its committed bytes intact.
+    Restore it even when Flutter exits with an error, keeping the worktree
+    deterministic and avoiding a misleading checksum failure in later tests.
+    """
+    metadata_path = ROOT / ".metadata"
+    original_metadata = metadata_path.read_bytes() if metadata_path.is_file() else None
+    try:
+        run([
+            "flutter", "create", "--org=com.amitar",
+            "--project-name=amitar_gallery_player",
+            f"--platforms={PLATFORMS}", "--no-pub", ".",
+        ])
+    finally:
+        if original_metadata is not None:
+            if not metadata_path.is_file() or metadata_path.read_bytes() != original_metadata:
+                metadata_path.write_bytes(original_metadata)
+
+
 def remove_generated_default_entrypoints(*, had_main: bool, had_widget_test: bool) -> None:
     """Remove only scaffold files created by flutter create, never user files."""
     generated_main = ROOT / "lib/main.dart"
@@ -557,11 +580,7 @@ def main() -> int:
             return 2
         had_main = (ROOT / "lib/main.dart").exists()
         had_widget_test = (ROOT / "test/widget_test.dart").exists()
-        run([
-            "flutter", "create", "--org=com.amitar",
-            "--project-name=amitar_gallery_player",
-            f"--platforms={PLATFORMS}", "--no-pub", ".",
-        ])
+        run_flutter_create_preserving_metadata()
         remove_generated_default_entrypoints(
             had_main=had_main,
             had_widget_test=had_widget_test,
