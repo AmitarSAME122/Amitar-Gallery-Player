@@ -1,0 +1,6 @@
+# Copy to android/key.properties and replace every value with your own signing credentials.
+# Keep android/key.properties and the keystore OUT of Git.
+storePassword=REPLACE_WITH_KEYSTORE_PASSWORD
+keyPassword=REPLACE_WITH_KEY_PASSWORD
+keyAlias=REPLACE_WITH_KEY_ALIAS
+storeFile=../release-keystore.jks
