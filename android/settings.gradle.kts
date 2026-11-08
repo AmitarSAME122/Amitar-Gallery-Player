@@ -15,6 +15,10 @@ pluginManagement {
 
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
+    // Resolve Google's Android Gradle Plugin from its canonical module coordinate.
+    // This avoids depending on the com.android.application plugin-marker POM,
+    // which some Google Maven mirrors/proxies fail to expose even when the AGP
+    // implementation artifact itself is available.
     resolutionStrategy {
         eachPlugin {
             if (requested.id.namespace == "com.android") {
@@ -23,39 +27,22 @@ pluginManagement {
         }
     }
 
+    // Optional trusted mirror for networks that cannot reach Google Maven.
+    // Set AMITAR_GOOGLE_MAVEN_MIRROR to an HTTPS Maven mirror you explicitly trust.
+    val googleMavenMirror = System.getenv("AMITAR_GOOGLE_MAVEN_MIRROR")?.trim().orEmpty()
+    if (googleMavenMirror.isNotEmpty()) {
+        require(googleMavenMirror.startsWith("https://", ignoreCase = true)) {
+            "AMITAR_GOOGLE_MAVEN_MIRROR must use HTTPS."
+        }
+    }
+
     repositories {
-        // ۱. میرورهای ایرانی (اولویت اول برای شبکه‌های با محدودیت)
-        maven { url = uri("https://maven.myket.ir") }
-        maven { url = uri("https://maven.devneeds.ir") }
-        maven { url = uri("https://gradle.iranrepo.ir") }
-        maven { url = uri("https://gradle.jamko.ir") }
-        maven { url = uri("https://en-mirror.ir") }
-        maven { url = uri("https://archive.ito.gov.ir/gradle/maven-plugin/") }
-
-        // ۲. میرورهای چینی Aliyun (با آدرس‌های اصلاح‌شده)
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-
-        // ۳. میرور Runflare (گزینه جایگزین)
-        maven { url = uri("https://mirror-maven.runflare.com/android/maven2/") }
-        maven { url = uri("https://mirror-maven.runflare.com/maven2/") }
-        maven { url = uri("https://mirror-maven.runflare.com/gradle-plugins/") }
-
-        // ۴. میرور سفارشی (در صورت تنظیم متغیر محیطی AMITAR_GOOGLE_MAVEN_MIRROR)
-        val googleMavenMirror = System.getenv("AMITAR_GOOGLE_MAVEN_MIRROR")?.trim().orEmpty()
         if (googleMavenMirror.isNotEmpty()) {
-            require(googleMavenMirror.startsWith("https://", ignoreCase = true)) {
-                "AMITAR_GOOGLE_MAVEN_MIRROR must use HTTPS."
-            }
             maven {
                 name = "AmitarTrustedGoogleMavenMirror"
                 url = uri(googleMavenMirror)
             }
         }
-
-        // ۵. مخازن رسمی (به عنوان fallback نهایی)
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -65,8 +52,7 @@ pluginManagement {
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.13.2" apply false
-    // نسخه Kotlin به 2.2.21 ارتقا یافت تا مشکل عدم وجود نسخه 2.2.20 حل شود
-    id("org.jetbrains.kotlin.android") version "2.2.21" apply false
+    id("org.jetbrains.kotlin.android") version "2.4.21" apply false
 }
 
 rootProject.name = "AmitarGalleryPlayer"
