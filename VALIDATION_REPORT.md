@@ -21,7 +21,7 @@
 ## اصلاحات اعمال‌شده
 
 - تنظیمات واقعی `settings.gradle.kts`، `build.gradle.kts`، `gradle.properties`، Wrapper، bootstrap و تست‌ها با یک مجموعهٔ نسخهٔ واحد هماهنگ شدند.
-- مسیر محلی Android SDK/Flutter از `local.properties` حذف شد؛ این فایل و کلیدهای امضا در `.gitignore` قرار دارند.
+- فایل `android/local.properties` ممکن است در زمان اجرای `flutter create` به‌صورت محلی در Runner تولید شود؛ آزمون CI اکنون وضعیت Git index را بررسی می‌کند، نه نبود فایل موقت در working tree. مسیرهای محلی SDK و کلیدهای امضا در `.gitignore` هستند و فایل‌های محلی/امضا از manifest هش سورس نیز کنار گذاشته می‌شوند.
 - نسخهٔ مستقیم `cross_file` به `^0.4.0` تغییر کرد و override تکراری حذف شد.
 - URLهای lockfile به مخزن canonical یعنی `pub.dev` یکسان‌سازی شدند.
 - فایل‌های cache، خروجی build، فایل‌های IDE، cache پایتون و فایل پشتیبان قدیمی از بستهٔ سورس کنار گذاشته شدند.
@@ -31,12 +31,15 @@
 - یک موتور پخش `media_kit` حفظ شده است؛ موتور موازی یا لایهٔ ذخیره‌سازی تکراری افزوده نشده است.
 - CI امضای اختیاری Android را پشتیبانی می‌کند. با تعریف هر چهار Secret با نام‌های `AMITAR_ANDROID_KEYSTORE_BASE64`، `AMITAR_ANDROID_STORE_PASSWORD`، `AMITAR_ANDROID_KEY_PASSWORD` و `AMITAR_ANDROID_KEY_ALIAS`، APK/AAB با کلید ناشر امضا می‌شوند. keystore فقط در `$RUNNER_TEMP` قرار می‌گیرد. پیکربندی ناقص باعث توقف build می‌شود؛ در نبود تمام Secretها خروجی صرفاً debug/QA خواهد بود.
 - خطای نگارشی DPI پوستر در changelog اصلاح شد؛ خروجی PNG پوستر A3 برابر ۳۰۰ DPI است.
+- آزمون عدم ثبت مسیر شخصی Android SDK به‌جای بررسی نبود فایل در working tree، Git index را بررسی می‌کند؛ در نتیجه `android/local.properties` تولیدشده توسط Flutter در CI موجب false negative نمی‌شود.
+- تولیدکنندهٔ `SHA256SUMS.txt` در Git checkout فقط فایل‌های ثبت‌شده در Git index را هش می‌کند و فایل‌های محلی `android/local.properties`، `android/key.properties` و Wrapper دانلودشده را کنار می‌گذارد. در Source archive فاقد `.git` نیز fallback صریح با همین exclusions فعال است.
+- فایل `.gitattributes` در بستهٔ اصلاحات وجود دارد تا ورودی فهرست SHA-256 نیز در مخزن Git ثبت شود.
 - manifest هش SHA-256 سورس بازسازی و برای همهٔ فایل‌های ثبت‌شده کنترل می‌شود.
 
 ## آزمون‌های اجراشده در این محیط
 
 - `python3 -m py_compile tool/*.py` — موفق.
-- `python3 -m unittest discover -s tool -p 'test_*.py' -v` — **۵۶ از ۵۶ آزمون موفق**؛ شامل bootstrap و checksum Wrapper، یکپارچگی تنظیم Android، مدیریت JDK، امضا در CI، آیکون‌های شش پلتفرم، ساخت fixture بستهٔ DEB، manifest و نسخهٔ انتشار.
+- `python3 -m unittest discover -s tool -p 'test_*.py' -v` — **۵۷ از ۵۷ آزمون موفق**؛ شامل bootstrap و checksum Wrapper، یکپارچگی تنظیم Android، مدیریت JDK، امضا در CI، آیکون‌های شش پلتفرم، ساخت fixture بستهٔ DEB، manifest و نسخهٔ انتشار.
 - `python3 tool/check_release_version.py --tag v1.0.0` — موفق؛ نسخهٔ `1.0.0` و build number `1` هماهنگ‌اند.
 - فایل‌های YAML workflow و Dependabot با parser بارگذاری شدند؛ شاخهٔ `Amitar`، پنج job، artifact مربوط به Wrapper و سه مرحلهٔ دریافت آن نیز با کنترل ساختاری بررسی شدند.
 - ZIP انتشار با `ZipFile.testzip()`، خواندن entryها و checksum کل بسته بررسی می‌شود؛ manifest SHA-256 داخلی نیز جداگانه تأیید می‌شود.

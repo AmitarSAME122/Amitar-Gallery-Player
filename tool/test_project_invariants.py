@@ -110,11 +110,38 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertIn("*.jks", gitignore)
 
     def test_no_personal_android_sdk_path_is_committed(self) -> None:
-        local_properties = ROOT / "android/local.properties"
-        self.assertFalse(local_properties.exists())
+        import subprocess
+
+        # `flutter create` legitimately generates android/local.properties on a
+        # CI runner. Its presence in the working tree is therefore not evidence
+        # that a machine-specific SDK path was committed. Check the Git index,
+        # which is the property this invariant is intended to protect.
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("android/local.properties", gitignore)
         self.assertIn("android/key.properties", gitignore)
+
+        repository = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if repository.returncode != 0:
+            self.skipTest("Git index check requires a Git working tree")
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", "android/local.properties"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(
+            tracked.returncode,
+            0,
+            "android/local.properties must remain ignored and must never be committed",
+        )
 
     def test_device_scan_has_initialized_memory_budget_and_item_cap(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
@@ -185,6 +212,17 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertIn("package-ecosystem: github-actions", config)
         self.assertEqual(config.count("interval: monthly"), 2)
 
+    def test_source_checksum_generator_uses_tracked_files_and_excludes_local_android_state(self) -> None:
+        generator = (ROOT / "tool/update_source_checksums.py").read_text(encoding="utf-8")
+        self.assertIn('["git", "ls-files", "-z"]', generator)
+        self.assertIn('"android/local.properties"', generator)
+        self.assertIn('"android/key.properties"', generator)
+        manifest = (ROOT / "SHA256SUMS.txt").read_text(encoding="utf-8")
+        listed_paths = {line.partition("  ")[2] for line in manifest.splitlines()}
+        self.assertNotIn("android/local.properties", listed_paths)
+        self.assertNotIn("android/key.properties", listed_paths)
+        self.assertNotIn("android/gradle/wrapper/gradle-wrapper.jar", listed_paths)
+
     def test_source_checksum_manifest_verifies_all_listed_files(self) -> None:
         import hashlib
 
@@ -195,7 +233,13 @@ class ProjectInvariantTests(unittest.TestCase):
             expected, _, relative = line.partition("  ")
             target = ROOT / relative
             self.assertTrue(target.is_file(), relative)
-            actual = hashlib.sha256(target.read_bytes()).hexdigest()
+            actual_bytes = target.read_bytes()
+            # The source manifest hashes canonical LF text bytes so it remains
+            # reproducible on Windows checkouts and Linux/macOS CI runners.
+            binary_suffixes = {".png", ".pdf", ".ico", ".jpg", ".jpeg", ".zip", ".aab", ".apk", ".exe", ".dmg", ".deb"}
+            if target.suffix.lower() not in binary_suffixes and not target.name.endswith(".tar.gz"):
+                actual_bytes = actual_bytes.replace(b"\r\n", b"\n")
+            actual = hashlib.sha256(actual_bytes).hexdigest()
             self.assertEqual(actual, expected, relative)
 
 
