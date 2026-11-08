@@ -1,0 +1,53 @@
+# Python tooling
+__pycache__/
+*.py[cod]
+
+# Flutter / Dart generated state
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+dist/
+coverage/
+
+# Gradle / Kotlin / Android generated or local state
+android/gradle/wrapper/gradle-wrapper.jar
+.gradle/
+.kotlin/
+android/.gradle/
+android/local.properties
+android/key.properties
+
+# Apple generated state
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+macos/Pods/
+macos/.symlinks/
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Signing credentials and local secrets (never commit these)
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.provisionprofile
+key.properties
+keystore.properties
+credentials.json
+secrets/
+
+# IDE and OS-generated files
+.idea/
+*.iml
+.DS_Store
+desktop.ini
+Thumbs.db
+*.bak_*
