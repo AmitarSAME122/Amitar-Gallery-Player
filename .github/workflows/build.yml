@@ -35,6 +35,9 @@ jobs:
           cache: true
       - name: Generate platform host projects and apply permissions
         run: python3 tool/bootstrap_platforms.py
+      - name: Restore tracked Flutter metadata after host generation
+        if: always()
+        run: git restore --source=HEAD --worktree -- .metadata
       - name: Upload the verified Gradle Wrapper JAR for native build jobs
         uses: actions/upload-artifact@v7.0.2
         with:
