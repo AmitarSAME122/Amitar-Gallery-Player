@@ -89,6 +89,18 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertNotIn('jitpack.io', first + app)
 
 
+    def test_unix_gradle_wrapper_execute_bit_is_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            wrapper = root / "android/gradlew"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            wrapper.chmod(0o644)
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms.sys, "platform", "linux"):
+                bootstrap_platforms.ensure_unix_gradle_wrapper_executable()
+            self.assertTrue(wrapper.stat().st_mode & 0o100)
+
     def test_android_maven_diagnostic_checks_real_agp_module_not_only_marker(self) -> None:
         script = (bootstrap_platforms.ROOT / "tool/check_android_maven_windows.ps1").read_text(encoding="utf-8")
         self.assertIn("https://dl.google.com/dl/android/maven2", script)
@@ -250,6 +262,10 @@ class BootstrapConfigurationTests(unittest.TestCase):
             lockfile = root / "pubspec.lock"
             original = b"tracked flutter metadata\n"
             original_lockfile = b"tracked dependency lock\n"
+            activity = root / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt"
+            activity.parent.mkdir(parents=True)
+            original_activity = b"class MainActivity : FlutterActivity() // custom channel\n"
+            activity.write_bytes(original_activity)
             metadata.write_bytes(original)
             lockfile.write_bytes(original_lockfile)
 
@@ -257,6 +273,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                 self.assertEqual(command[0:2], ["flutter", "create"])
                 metadata.write_bytes(b"runner-specific generated metadata\n")
                 lockfile.write_bytes(b"rewritten lock by flutter scaffold\n")
+                activity.write_bytes(b"class MainActivity : FlutterActivity() // generated default\n")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
                  mock.patch.object(bootstrap_platforms, "run", side_effect=fake_run):
@@ -272,12 +289,17 @@ class BootstrapConfigurationTests(unittest.TestCase):
             lockfile = root / "pubspec.lock"
             original = b"tracked flutter metadata\n"
             original_lockfile = b"tracked dependency lock\n"
+            activity = root / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt"
+            activity.parent.mkdir(parents=True)
+            original_activity = b"class MainActivity : FlutterActivity() // custom channel\n"
+            activity.write_bytes(original_activity)
             metadata.write_bytes(original)
             lockfile.write_bytes(original_lockfile)
 
             def fake_run(command: list[str]) -> None:
                 metadata.write_bytes(b"partially generated metadata\n")
                 lockfile.write_bytes(b"partially rewritten lock\n")
+                activity.write_bytes(b"class MainActivity : FlutterActivity() // generated default\n")
                 raise RuntimeError("simulated flutter create failure")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
@@ -288,6 +310,35 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertEqual(metadata.read_bytes(), original)
             self.assertEqual(lockfile.read_bytes(), original_lockfile)
 
+
+    def test_main_keeps_new_android_activity_when_no_activity_existed_before_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+            app = root / "lib/AmitarGalleryPlayer.dart"
+            app.parent.mkdir(parents=True)
+            app.write_text("// fixture\n", encoding="utf-8")
+            for platform in bootstrap_platforms.PLATFORMS.split(","):
+                (root / platform).mkdir(parents=True, exist_ok=True)
+
+            configure_android = bootstrap_platforms.configure_android_gradle
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms, "APP_ENTRYPOINT", app), \
+                 mock.patch.object(bootstrap_platforms.shutil, "which", return_value="/usr/bin/flutter"), \
+                 mock.patch.object(bootstrap_platforms.sys, "argv", ["bootstrap_platforms.py"]), \
+                 mock.patch.object(bootstrap_platforms, "run_flutter_create_preserving_metadata"), \
+                 mock.patch.object(bootstrap_platforms, "remove_generated_default_entrypoints"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
+                 mock.patch.object(bootstrap_platforms, "configure_android_gradle", side_effect=configure_android), \
+                 mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
+                 mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
+                 mock.patch.object(bootstrap_platforms, "configure_linux_icon"):
+                self.assertEqual(bootstrap_platforms.main(), 0)
+
+            activity = root / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt"
+            self.assertTrue(activity.is_file())
+            self.assertIn("class MainActivity : FlutterActivity()", activity.read_text(encoding="utf-8"))
 
     def test_main_restores_metadata_and_lockfile_after_all_bootstrap_stages(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -318,6 +369,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                  mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
                  mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
                  mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
                  mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
                  mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_metadata):
                 self.assertEqual(bootstrap_platforms.main(), 0)
@@ -355,6 +407,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                  mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
                  mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
                  mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
                  mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
                  mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_then_fail):
                 with self.assertRaisesRegex(RuntimeError, "simulated later platform configuration failure"):

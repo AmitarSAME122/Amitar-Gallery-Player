@@ -136,6 +136,24 @@ def _is_verified_gradle_wrapper_jar(path: Path) -> bool:
         return False
 
 
+def ensure_unix_gradle_wrapper_executable() -> None:
+    """Restore the Gradle shell wrapper execute bit on Unix build runners.
+
+    ZIP exports and some web-based source uploads can lose Git's 100755 mode.
+    Flutter delegates Android Gradle invocation to this script, so normalize the
+    mode before any native build rather than relying on the archive transport.
+    Windows uses gradlew.bat and intentionally skips POSIX mode handling.
+    """
+    if sys.platform == "win32":
+        return
+    wrapper = ROOT / "android/gradlew"
+    if not wrapper.is_file():
+        raise FileNotFoundError(
+            "android/gradlew is missing after Flutter host generation; cannot build Android."
+        )
+    wrapper.chmod(wrapper.stat().st_mode | 0o100)
+
+
 def ensure_verified_gradle_wrapper_jar() -> None:
     """Install the official Gradle 8.14.6 Wrapper JAR and verify it before use.
 
@@ -555,9 +573,21 @@ def _restore_project_file_snapshot(path: Path, original_bytes: bytes | None) -> 
             temporary_path.unlink()
 
 
-def _capture_project_file_snapshots() -> list[tuple[Path, bytes | None]]:
-    """Capture files that host scaffolding must never rewrite in the source tree."""
-    paths = (ROOT / ".metadata", ROOT / "pubspec.lock")
+def _capture_project_file_snapshots(
+    *, preserve_android_activity: bool = False,
+) -> list[tuple[Path, bytes | None]]:
+    """Capture tracked Flutter files, optionally including the custom Activity.
+
+    MainActivity contains the app's Android ContentResolver bridge. Preserve it
+    around `flutter create`, but do not preserve its prior absence around the
+    full bootstrap: configure_android_gradle() must be able to create a valid
+    default Activity when a platform host is first generated.
+    """
+    paths = [ROOT / ".metadata", ROOT / "pubspec.lock"]
+    if preserve_android_activity:
+        paths.append(
+            ROOT / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt"
+        )
     return [(path, path.read_bytes() if path.is_file() else None) for path in paths]
 
 
@@ -572,10 +602,12 @@ def run_flutter_create_preserving_metadata() -> None:
 
     Flutter scaffolding may update `.metadata` for the installed SDK. Guard the
     checked-in `pubspec.lock` as well: dependency resolution is deliberately
-    deferred to the dedicated `flutter pub get` step in the CI workflow. Both
-    files are restored byte-for-byte even if `flutter create` fails.
+    deferred to the dedicated `flutter pub get` step in the CI workflow. Preserve
+    the app-owned Android MainActivity integration too, even if `flutter create`
+    rewrites the generated host Activity. All snapshots are restored byte-for-byte
+    even if `flutter create` fails.
     """
-    snapshots = _capture_project_file_snapshots()
+    snapshots = _capture_project_file_snapshots(preserve_android_activity=True)
     try:
         run([
             "flutter", "create", "--org=com.amitar",
@@ -623,6 +655,7 @@ def main() -> int:
         ensure_android_manifest()
         configure_android_gradle()
         ensure_verified_gradle_wrapper_jar()
+        ensure_unix_gradle_wrapper_executable()
         configure_apple_hosts()
         configure_linux_icon()
         missing = [name for name in PLATFORMS.split(",") if not (ROOT / name).is_dir()]

@@ -202,10 +202,107 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertLess(restore, verify_restore)
         self.assertLess(verify_restore, python_tests)
 
-    def test_ci_formatting_is_non_mutating_and_linux_bootstrap_is_not_repeated(self) -> None:
+    def test_ci_uses_one_source_snapshot_for_every_native_build(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        self.assertIn("dart format --output=none --set-exit-if-changed lib test", workflow)
-        self.assertIn("tool/build.py all --skip-bootstrap --skip-checks", workflow)
+        quality_job = workflow.split("  quality:", 1)[1].split("  linux-android-web:", 1)[0]
+        self.assertIn("python3 tool/validate_source_contracts.py", quality_job)
+        self.assertIn("dart format lib test", quality_job)
+        self.assertIn("dart format --output=none --set-exit-if-changed lib test", quality_job)
+        self.assertIn("tool/collect_ci_snapshot.py", quality_job)
+        self.assertIn("name: agp-quality-source-snapshot", quality_job)
+        self.assertNotIn("run: dart fix --apply", quality_job)
+
+        for job_name, next_job in (
+            ("linux-android-web", "windows"),
+            ("windows", "apple"),
+            ("apple", "persist-quality-source-snapshot"),
+        ):
+            job = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
+            bootstrap = job.index("tool/bootstrap_platforms.py")
+            source_download = job.index("agp-quality-source-snapshot")
+            lock_download = job.index("agp-pubspec-lock")
+            apply_snapshot = job.index("tool/apply_ci_snapshot.py")
+            enforce_lock = job.index("flutter pub get --enforce-lockfile")
+            build = job.index("tool/build.py")
+            self.assertLess(bootstrap, source_download)
+            self.assertLess(source_download, apply_snapshot)
+            self.assertLess(lock_download, apply_snapshot)
+            self.assertLess(apply_snapshot, enforce_lock)
+            self.assertLess(enforce_lock, build)
+
+    def test_quality_snapshot_persistence_commits_sources_lock_and_manifest_after_all_builds(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        persist_start = workflow.index("  persist-quality-source-snapshot:")
+        persist_end = workflow.index("  publish-github-release:", persist_start)
+        persist_job = workflow[persist_start:persist_end]
+        self.assertIn("needs: [quality, linux-android-web, windows, apple]", persist_job)
+        self.assertIn("if: github.event_name != 'pull_request' && github.ref_type == 'branch'", persist_job)
+        self.assertIn("permissions:\n      contents: write", persist_job)
+        self.assertIn("agp-quality-source-snapshot", persist_job)
+        self.assertIn("agp-pubspec-lock", persist_job)
+        self.assertIn("tool/apply_ci_snapshot.py", persist_job)
+        self.assertIn('git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- "${protected_paths[@]}"', persist_job)
+        self.assertIn('git worktree add --detach "$worktree_dir" FETCH_HEAD', persist_job)
+        self.assertIn('git add -- "${snapshot_files[@]}"', persist_job)
+        self.assertIn("git add -- pubspec.lock", persist_job)
+        self.assertIn("python3 tool/update_source_checksums.py", persist_job)
+        self.assertIn("git add -- SHA256SUMS.txt", persist_job)
+        self.assertIn('git push origin "HEAD:${BRANCH_NAME}"', persist_job)
+        self.assertNotIn("contents: write", workflow.split("  quality:", 1)[1].split("  linux-android-web:", 1)[0])
+
+    def test_ci_does_not_run_unsafe_analyzer_quick_fixes(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertNotIn("run: dart fix --apply", workflow)
+        contract = workflow.index("python3 tool/validate_source_contracts.py")
+        icons = workflow.index("dart run flutter_launcher_icons")
+        formatting = workflow.index("dart format lib test")
+        analysis = workflow.index("run: flutter analyze")
+        tests = workflow.index("run: flutter test --reporter expanded")
+        self.assertLess(contract, icons)
+        self.assertLess(icons, formatting)
+        self.assertLess(formatting, analysis)
+        self.assertLess(analysis, tests)
+
+    def test_snapshot_helpers_are_present_and_source_contract_is_executable(self) -> None:
+        for relative in (
+            "tool/collect_ci_snapshot.py",
+            "tool/apply_ci_snapshot.py",
+            "tool/validate_source_contracts.py",
+            "tool/test_ci_snapshot.py",
+        ):
+            self.assertTrue((ROOT / relative).is_file(), relative)
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tool/validate_source_contracts.py")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_manifest_refresh_workflow_is_manual_to_avoid_racing_build_persistence(self) -> None:
+        workflow = (ROOT / ".github/workflows/refresh-source-manifest.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("  push:", workflow)
+        self.assertIn("permissions:\n      contents: write", workflow)
+        self.assertIn("tool/update_source_checksums.py", workflow)
+
+    def test_queue_reordering_uses_current_flutter_callback_contract(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("onReorderItem: c.reorderQueue", source)
+        start = source.index("void reorderQueue(int oldIndex, int newIndex)")
+        end = source.index("void moveToAlbum", start)
+        method = source[start:end]
+        self.assertNotIn("newIndex--", method)
+        self.assertIn("newIndex >= _queueIds.length", method)
+        self.assertIn("_queueIds.insert(newIndex, moved)", method)
+
+    def test_intentional_app_entrypoint_filename_is_documented_for_analyzer(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertTrue(source.startswith("// ignore_for_file: file_names"))
+        self.assertNotIn("import 'dart:typed_data';", source)
 
     def test_ci_triggers_on_project_branch_and_transfers_verified_wrapper(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
@@ -222,6 +319,58 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertIn("package-ecosystem: github-actions", config)
         self.assertEqual(config.count("interval: monthly"), 2)
 
+
+    def test_file_picker_dependency_does_not_conflict_with_cross_file_040(self) -> None:
+        pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
+        source = SOURCE.read_text(encoding="utf-8")
+        lock = (ROOT / "pubspec.lock").read_text(encoding="utf-8")
+        self.assertIn("file_picker: ^13.3.2", pubspec)
+        self.assertNotRegex(pubspec, r"(?m)^\s*cross_file:")
+        self.assertNotIn("package:cross_file/", source)
+        self.assertNotIn("XFile.", source)
+        self.assertIn("name: cross_file", lock)
+        import re
+        match = re.search(r"(?ms)^  cross_file:\n(.*?)(?=^  [A-Za-z0-9_]+:\n|\Z)", lock)
+        self.assertIsNotNone(match)
+        cross_file_block = match.group(1)
+        self.assertIn("dependency: transitive", cross_file_block)
+        self.assertIn('version: "0.3.5+5"', cross_file_block)
+        for obsolete in (
+            "cross_file_android:",
+            "cross_file_darwin:",
+            "cross_file_io:",
+            "cross_file_platform_interface:",
+            "cross_file_web:",
+        ):
+            self.assertNotIn(obsolete, lock)
+
+    def test_persisted_content_uri_playback_uses_bounded_reader_after_restart(self) -> None:
+        source = (ROOT / "lib/AmitarGalleryPlayer.dart").read_text(encoding="utf-8")
+        play_start = source.index("  Future<void> playAt(")
+        play_end = source.index("  Future<void> togglePlayback(", play_start)
+        play_method = source[play_start:play_end]
+        self.assertIn("sourceUri?.scheme.toLowerCase() == 'content'", play_method)
+        self.assertIn("readEntryBytes(\n            item,\n            maxBytes: _maxScopedPlaybackBytes,\n          )", play_method)
+        self.assertNotIn("item.readBytes == null", play_method)
+        self.assertNotIn("item.readBytes!()", play_method)
+
+    def test_android_legacy_content_uri_bridge_is_bounded_and_off_ui_thread(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        activity = (ROOT / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("_readAndroidContentUriBytes", source)
+        self.assertIn("maxBytes: maxBytes", source)
+        self.assertIn("com.amitar.amitar_gallery_player/content_uri", source)
+        self.assertIn("Executors.newSingleThreadExecutor()", activity)
+        self.assertIn("contentResolver.openInputStream(uri)", activity)
+        self.assertIn("COPY_BUFFER_BYTES = 64 * 1024", activity)
+        self.assertIn("totalBytes > maxBytes - count.toLong()", activity)
+        self.assertIn("runOnUiThread { result.success(copiedPath) }", activity)
+        self.assertIn("contentUriExecutor.shutdown()", activity)
+        self.assertIn("maxBytes > MAX_COPY_BYTES", activity)
+        self.assertIn("uri.scheme?.equals(ContentResolver.SCHEME_CONTENT, ignoreCase = true)", activity)
+        bootstrap = (ROOT / "tool/bootstrap_platforms.py").read_text(encoding="utf-8")
+        self.assertIn("MainActivity.kt", bootstrap)
+
     def test_source_checksum_generator_uses_tracked_files_and_excludes_local_android_state(self) -> None:
         generator = (ROOT / "tool/update_source_checksums.py").read_text(encoding="utf-8")
         self.assertIn('["git", "ls-files", "-z"]', generator)
@@ -233,8 +382,53 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertNotIn("android/key.properties", listed_paths)
         self.assertNotIn("android/gradle/wrapper/gradle-wrapper.jar", listed_paths)
 
+    def test_checksum_generator_normalizes_extensionless_flutter_metadata(self) -> None:
+        import importlib.util
+
+        generator_path = ROOT / "tool/update_source_checksums.py"
+        spec = importlib.util.spec_from_file_location("agp_checksum_generator", generator_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        windows_metadata = b"version:\r\n  revision: abc123\r\n"
+        linux_metadata = b"version:\n  revision: abc123\n"
+        self.assertEqual(
+            module.canonicalize_source_bytes(".metadata", windows_metadata),
+            linux_metadata,
+        )
+        self.assertEqual(
+            module.canonicalize_source_bytes("pubspec.lock", windows_metadata),
+            linux_metadata,
+        )
+        binary_png = b"\x89PNG\r\n\x1a\n\r\n"
+        self.assertEqual(
+            module.canonicalize_source_bytes("assets/icon.png", binary_png),
+            binary_png,
+        )
+
     def test_source_checksum_manifest_verifies_all_listed_files(self) -> None:
         import hashlib
+        import importlib.util
+        import subprocess
+
+        repository = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if repository.returncode != 0:
+            self.skipTest("Canonical source manifest must be regenerated from the complete Git index.")
+
+        generator_path = ROOT / "tool/update_source_checksums.py"
+        spec = importlib.util.spec_from_file_location("agp_checksum_generator", generator_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
 
         manifest = ROOT / "SHA256SUMS.txt"
         if not manifest.is_file():
@@ -243,12 +437,9 @@ class ProjectInvariantTests(unittest.TestCase):
             expected, _, relative = line.partition("  ")
             target = ROOT / relative
             self.assertTrue(target.is_file(), relative)
-            actual_bytes = target.read_bytes()
-            # The source manifest hashes canonical LF text bytes so it remains
-            # reproducible on Windows checkouts and Linux/macOS CI runners.
-            binary_suffixes = {".png", ".pdf", ".ico", ".jpg", ".jpeg", ".zip", ".aab", ".apk", ".exe", ".dmg", ".deb"}
-            if target.suffix.lower() not in binary_suffixes and not target.name.endswith(".tar.gz"):
-                actual_bytes = actual_bytes.replace(b"\r\n", b"\n")
+            # Use the exact same canonicalization routine as the generator.
+            # This explicitly covers extensionless `.metadata` on Windows.
+            actual_bytes = module.canonicalize_source_bytes(relative, target.read_bytes())
             actual = hashlib.sha256(actual_bytes).hexdigest()
             self.assertEqual(actual, expected, relative)
 
