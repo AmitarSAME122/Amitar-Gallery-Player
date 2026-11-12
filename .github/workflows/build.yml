@@ -4,6 +4,8 @@ on:
   push:
     branches: [ Amitar, main, master ]
     tags: [ 'v*' ]
+    paths-ignore:
+      - 'SHA256SUMS.txt'
   pull_request:
   workflow_dispatch:
 
@@ -40,6 +42,8 @@ jobs:
         run: |
           git restore --source=HEAD --worktree -- .metadata pubspec.lock
           git diff --exit-code HEAD -- .metadata pubspec.lock
+      - name: Regenerate canonical source checksums on the GitHub runner
+        run: python3 tool/update_source_checksums.py
       - name: Upload the verified Gradle Wrapper JAR for native build jobs
         uses: actions/upload-artifact@v7.0.2
         with:
