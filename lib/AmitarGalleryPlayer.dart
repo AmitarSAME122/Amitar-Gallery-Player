@@ -1,7 +1,7 @@
+// ignore_for_file: file_names
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
@@ -10,7 +10,6 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:media_kit/media_kit.dart';
 import 'package:hive_ce/hive.dart' as hive;
-import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path_provider/path_provider.dart';
@@ -51,6 +50,71 @@ const int _maxInMemoryThumbnailBytes = 48 * 1024 * 1024;
 const int _maxInMemoryPreviewBytes = 16 * 1024 * 1024;
 const int _maxScanItems = 20000;
 const int _thumbnailWidth = 420;
+
+// Legacy Android SAF/content:// records are read through ContentResolver and
+// copied to a bounded cache file. Normal local files use universal_io directly.
+const MethodChannel _androidContentUriChannel = MethodChannel(
+  'com.amitar.amitar_gallery_player/content_uri',
+);
+
+Future<String> _copyAndroidContentUriToCache(
+  String source, {
+  required int maxBytes,
+}) async {
+  final uri = Uri.tryParse(source);
+  if (uri == null || uri.scheme.toLowerCase() != 'content') {
+    throw FormatException('Expected an Android content:// URI.', source);
+  }
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    throw UnsupportedError(
+      'Reading legacy content:// references is supported only on Android.',
+    );
+  }
+  if (maxBytes <= 0) {
+    throw ArgumentError.value(
+      maxBytes,
+      'maxBytes',
+      'Must be greater than zero.',
+    );
+  }
+  final stagedPath = await _androidContentUriChannel.invokeMethod<String>(
+    'copyToCache',
+    <String, Object>{'uri': source, 'maxBytes': maxBytes},
+  );
+  if (stagedPath == null || stagedPath.isEmpty) {
+    throw StateError('Android did not return a staged content URI path.');
+  }
+  return stagedPath;
+}
+
+Future<Uint8List> _readAndroidContentUriBytes(
+  String source, {
+  required int maxBytes,
+}) async {
+  final stagedPath = await _copyAndroidContentUriToCache(
+    source,
+    maxBytes: maxBytes,
+  );
+  final stagedFile = uio.File(stagedPath);
+  try {
+    if (!await stagedFile.exists()) {
+      throw StateError('The temporary Android content copy is missing.');
+    }
+    final length = await stagedFile.length();
+    if (length > maxBytes) {
+      throw UnsupportedError(
+        'The content URI exceeds the configured read limit.',
+      );
+    }
+    return await stagedFile.readAsBytes();
+  } finally {
+    try {
+      if (await stagedFile.exists()) await stagedFile.delete();
+    } catch (_) {
+      // The operating system will eventually evict any orphaned cache file.
+    }
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1592,9 +1656,8 @@ class AppController extends ChangeNotifier {
             'The system media asset is no longer available.',
           ),
         );
-      final source = XFile.fileSystem(path: file.path);
-      // اصلاح: استفاده از ?? برای مدیریت مقدار null در length
-      final length = await source.length() ?? 0;
+      final source = uio.File(file.path);
+      final length = await source.length();
       if (length > maxBytes)
         throw UnsupportedError(
           t(
@@ -1613,13 +1676,12 @@ class AppController extends ChangeNotifier {
       );
     }
     final uri = Uri.tryParse(entry.source);
-    final source = uri?.scheme == 'content'
-        ? XFile.scopedStorage(uri: entry.source)
-        : XFile.fileSystem(
-            path: uri?.scheme == 'file' ? uri!.toFilePath() : entry.source,
-          );
-    // اصلاح: استفاده از ?? برای مدیریت مقدار null در length
-    final length = await source.length() ?? 0;
+    if (uri?.scheme.toLowerCase() == 'content') {
+      return _readAndroidContentUriBytes(entry.source, maxBytes: maxBytes);
+    }
+    final sourcePath = uri?.scheme == 'file' ? uri!.toFilePath() : entry.source;
+    final source = uio.File(sourcePath);
+    final length = await source.length();
     if (length > maxBytes)
       throw UnsupportedError(
         t(
@@ -1929,7 +1991,7 @@ class AppController extends ChangeNotifier {
               addedAt: stat.modified,
               thumbnailBytes: thumbnail,
               previewBytes: preview,
-              readBytes: () => XFile.fileSystem(path: path).readAsBytes(),
+              readBytes: () => uio.File(path).readAsBytes(),
             ),
           );
           existing.add(normalized);
@@ -2339,7 +2401,7 @@ class AppController extends ChangeNotifier {
               thumbnailBytes: thumbnail,
               previewBytes: preview,
               readBytes: committedPath != null
-                  ? () => XFile.fileSystem(path: committedPath).readAsBytes()
+                  ? () => uio.File(committedPath).readAsBytes()
                   : () => file.readAsBytes(),
             ),
           );
@@ -2483,18 +2545,11 @@ class AppController extends ChangeNotifier {
             );
           }
           playable = Media(localFile.path);
-        } else if (sourceUri?.scheme == 'content') {
+        } else if (sourceUri?.scheme.toLowerCase() == 'content') {
           // Android SAF content URIs are not in libmpv's default protocol
-          // whitelist. A bounded in-memory fallback supports modest files
-          // while avoiding unbounded RAM use for large video/audio files.
-          if (item.readBytes == null) {
-            throw UnsupportedError(
-              t(
-                'مجوز خواندن این فایل پس از بازگشایی برنامه در دسترس نیست؛ فایل را دوباره انتخاب کنید.',
-                'The scoped file handle is no longer available. Import this file again.',
-              ),
-            );
-          }
+          // whitelist. Use the same bounded reader as image previews. This
+          // also supports saved URI entries after restart because transient
+          // PlatformFile callbacks are not persisted in Hive.
           if (item.sizeBytes > _maxScopedPlaybackBytes) {
             throw UnsupportedError(
               t(
@@ -2503,7 +2558,10 @@ class AppController extends ChangeNotifier {
               ),
             );
           }
-          final bytes = await item.readBytes!();
+          final bytes = await readEntryBytes(
+            item,
+            maxBytes: _maxScopedPlaybackBytes,
+          );
           if (bytes.length > _maxScopedPlaybackBytes) {
             throw UnsupportedError(
               t(
@@ -2926,7 +2984,7 @@ class AppController extends ChangeNotifier {
               trashedOriginalSource: originalPath,
               clearAssetId: true,
               sizeBytes: await uio.File(movedPath).length(),
-              readBytes: () => XFile.fileSystem(path: movedPath).readAsBytes(),
+              readBytes: () => uio.File(movedPath).readAsBytes(),
             )
           : entry;
       _library.removeAt(index);
@@ -3009,7 +3067,7 @@ class AppController extends ChangeNotifier {
           clearTrashedOriginalSource: true,
           sizeBytes: await uio.File(destinationPath).length(),
           readBytes: () =>
-              XFile.fileSystem(path: destinationPath).readAsBytes(),
+              uio.File(destinationPath).readAsBytes(),
         );
       }
       _trash.removeAt(index);
@@ -3106,9 +3164,10 @@ class AppController extends ChangeNotifier {
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
+    // ReorderableListView.onReorderItem already adjusts the insertion index
+    // after removing the dragged item. Do not apply the legacy decrement again.
     if (oldIndex < 0 || oldIndex >= _queueIds.length) return;
-    if (newIndex < 0 || newIndex > _queueIds.length) return;
-    if (newIndex > oldIndex) newIndex--;
+    if (newIndex < 0 || newIndex >= _queueIds.length) return;
     if (oldIndex == newIndex) return;
     final moved = _queueIds.removeAt(oldIndex);
     _queueIds.insert(newIndex, moved);
@@ -3202,7 +3261,7 @@ class AppController extends ChangeNotifier {
             sizeBytes: await uio.File(destinationPath).length(),
             addedAt: DateTime.now(),
             readBytes: () =>
-                XFile.fileSystem(path: destinationPath).readAsBytes(),
+                uio.File(destinationPath).readAsBytes(),
           );
         }
       } else {
@@ -3223,7 +3282,7 @@ class AppController extends ChangeNotifier {
           playCount: 0,
           clearLastPlayedAt: true,
           readBytes: () =>
-              XFile.fileSystem(path: destinationPath).readAsBytes(),
+              uio.File(destinationPath).readAsBytes(),
         );
         _insertLibraryAtStart(copiedEntry);
         _enqueueIfPlayable(copiedEntry);
@@ -3341,7 +3400,7 @@ class AppController extends ChangeNotifier {
         source: destinationPath,
         title: p.basename(destinationPath),
         sizeBytes: await uio.File(destinationPath).length(),
-        readBytes: () => XFile.fileSystem(path: destinationPath).readAsBytes(),
+        readBytes: () => uio.File(destinationPath).readAsBytes(),
       );
       await _saveCollections();
       notifyListeners();
@@ -6342,9 +6401,8 @@ class _PlayerImageState extends State<_PlayerImage> {
         final asset = await pm.AssetEntity.fromId(entry.assetId!);
         final file = await asset?.file;
         if (file == null) throw StateError('System asset no longer available');
-        final original = XFile.fileSystem(path: file.path);
-        // اصلاح: استفاده از ?? برای مدیریت مقدار null در length
-        final size = await original.length() ?? 0;
+        final original = uio.File(file.path);
+        final size = await original.length();
         if (size > _maxFullImageBytes)
           throw UnsupportedError(
             'Image exceeds full-resolution preview memory limit',
@@ -6352,13 +6410,16 @@ class _PlayerImageState extends State<_PlayerImage> {
         data = await original.readAsBytes();
       } else if (entry.readBytes != null) {
         data = await entry.readBytes!();
-      } else if (sourceUri?.scheme == 'content') {
-        data = await XFile.scopedStorage(uri: entry.source).readAsBytes();
+      } else if (sourceUri?.scheme.toLowerCase() == 'content') {
+        data = await _readAndroidContentUriBytes(
+          entry.source,
+          maxBytes: _maxFullImageBytes,
+        );
       } else {
         final path = sourceUri?.scheme == 'file'
             ? sourceUri!.toFilePath()
             : entry.source;
-        data = await XFile.fileSystem(path: path).readAsBytes();
+        data = await uio.File(path).readAsBytes();
       }
       if (data.length <= _maxFullImageBytes && mounted) {
         setState(() => _loadedBytes = data);
@@ -6824,7 +6885,7 @@ Future<void> _showQueue(BuildContext context, AppController c) async {
                       scrollController: scrollController,
                       buildDefaultDragHandles: true,
                       itemCount: c.queueEntries.length,
-                      onReorder: c.reorderQueue,
+                      onReorderItem: c.reorderQueue,
                       itemBuilder: (context, index) {
                         final item = c.queueEntries[index];
                         final selected = item.id == c.currentItem?.id;
