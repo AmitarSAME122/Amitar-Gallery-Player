@@ -1,40 +1,28 @@
-# بسته اصلاح خطای Dart Formatter در AmitarGalleryPlayer
+# بستهٔ نهایی اصلاحات CI و سازگاری AmitarGalleryPlayer
 
-## تشخیص از آخرین اجرای GitHub Actions
+این بسته بر اساس آخرین لاگ `Analyze and regression tests` ساخته شده است.
 
-- شاخه: `Amitar`
-- Commit اجرا: `f146ad34fde783d5bcbfd4a626cffffde9aa9ed9`
-- مرحله `flutter pub get`: موفق؛ حل وابستگی‌ها پایان یافته و `Got dependencies!` ثبت شده است.
-- مرحله تولید آیکون‌ها: موفق؛ آیکون‌های پلتفرم‌ها ساخته شده‌اند.
-- تنها مرحله شکست‌خورده در این لاگ: `dart format --output=none --set-exit-if-changed lib test` با Exit Code 1.
-- سه فایل گزارش‌شده توسط Formatter: `lib/AmitarGalleryPlayer.dart`، `lib/assets.dart` و `test/model_serialization_test.dart`.
+## علت خطای آخر
 
-## تغییرات این بسته
+`flutter pub get` موفق بوده و `cross_file 0.3.5+5` را به‌صورت وابستگی انتقالی دریافت کرده است؛ اما فایل برنامه هنوز از سازنده‌های مختص API قدیمی/ناسازگار `XFile.fileSystem` و `XFile.scopedStorage` استفاده می‌کرد. در نتیجه ۱۳ خطای `undefined_method` گزارش شد. علاوه بر آن، Analyzer تعداد زیادی پیام info مربوط به قواعد Lint ثبت کرده بود.
 
-1. Workflow ابتدا `dart format lib test` را اجرا می‌کند و سپس با همان Flutter/Dart نصب‌شده در GitHub Runner، قالب‌بندی را به‌صورت غیرتغییردهنده تأیید می‌کند.
-2. اگر اجرای Workflow روی یک Branch باشد و فایل‌های Dart ردیابی‌شده تغییر کرده باشند، فقط همان فایل‌های Dart در یک Git worktree تمیز از آخرین سرشاخه اعمال می‌شوند؛ فایل‌های تولیدی Android/iOS/Desktop یا خروجی‌های ساخت وارد Commit نمی‌شوند.
-3. اسکریپت موجود `tool/update_source_checksums.py` در همان worktree اجرا می‌شود تا `SHA256SUMS.txt` با نسخه قالب‌بندی‌شده هماهنگ شود. سپس فایل‌های Dart و Manifest در یک Commit رباتی ثبت و به همان Branch Push می‌شوند.
-4. اجازه `contents: write` فقط به Job مستقل `persist-dart-format` داده شده است؛ Job کیفیت، تست‌ها و تمام Jobهای ساخت همچنان مجوز خواندن دارند. فایل‌های قالب‌بندی‌شده ابتدا به‌صورت Artifact یک‌روزه از Job کیفیت منتقل می‌شوند تا Job دارای مجوز نوشتن هیچ کد پروژه‌ای را اجرا نکند.
-5. پیش از اعمال تغییرات خودکار، Workflow بررسی می‌کند که فایل‌های Dart در Branch از زمان شروع Run تغییر مستقل نکرده باشند. در صورت تغییر هم‌زمان، از بازنویسی آن تغییر جلوگیری و خطای واضح ثبت می‌شود.
-6. در رویداد `pull_request` هیچ Push خودکاری انجام نمی‌شود. در رویداد `push` یا `workflow_dispatch` روی Branch، اصلاحات در همان Branch ثبت می‌شوند.
+## فایل‌های بسته
 
-## فایل‌هایی که باید جایگزین شوند
+- `.github/workflows/build.yml` — اجرای `dart fix --apply`، قالب‌بندی، بررسی نهایی و ثبت امن تغییرات با مجوز نوشتن جداگانه.
+- `pubspec.yaml` و `pubspec.lock` — حذف وابستگی مستقیم متعارض و نگه‌داشتن `cross_file 0.3.5+5` به‌صورت transitive.
+- `lib/AmitarGalleryPlayer.dart` — حذف تمام فراخوانی‌های ناسازگار XFile، استفاده از `universal_io` برای مسیرهای محلی، پل محدود Android برای URIهای قدیمی `content://`، نگه‌داشتن نام فایل ورودی موردنیاز پروژه و اصلاح API مرتب‌سازی صف.
+- `android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt` — پیاده‌سازی پل `ContentResolver` با I/O در executor پس‌زمینه، بافر ۶۴ KiB و سقف انتقال ۲۵۶ MiB.
+- `tool/bootstrap_platforms.py` و تست آن — حفظ Activity سفارشی هنگام اجرای `flutter create`.
+- `tool/test_project_invariants.py` — تست رگرسیون وابستگی، پل Android، Workflow و قرارداد جدید مرتب‌سازی.
+- فایل‌های Dependency، Changelog و Validation Report برای همگام‌سازی مستندات.
 
-- `.github/workflows/build.yml`
-- `tool/test_project_invariants.py`
+## روش اعمال
 
-فایل کامل پروژه در این بسته نیست. محتویات `assets/` و `presentation/` دست‌نخورده می‌مانند و نیازی به بارگذاری مجدد آن‌ها نیست.
+۱. در شاخهٔ `Amitar` مسیرهای داخل ZIP را جایگزین کن و فایل جدید را در مسیر مشخص‌شده اضافه کن.
+۲. فایل‌ها و پوشه‌های `assets/` و `presentation/` را حذف یا جایگزین نکن. این پوشه‌ها عمداً در این بسته نیستند و نسخهٔ کامل مخزن باید آن‌ها را نگه دارد.
+۳. `SHA256SUMS.txt` را دستی ویرایش نکن؛ Workflow آن را با ابزار پروژه از محتوای واقعی checkout بازتولید می‌کند.
+۴. تغییرات را Commit کن. در صورت اجرای push مستقیم به شاخه، مجوز `Contents: Read and write` در تنظیمات Actions و قوانین محافظت شاخه باید اجازهٔ Commit ربات را بدهند. در Pull Request، Job ثبت خودکار قالب‌بندی اجرا نمی‌شود؛ پس از Merge، اجرای push آن را ثبت می‌کند.
 
-## تنظیم مجوز GitHub
+## مرز اعتبارسنجی
 
-در `Settings → Actions → General → Workflow permissions` مطمئن شو Workflowها اجازه نوشتن در Contents را دارند و سیاست سازمانی/مخزن آن را مسدود نکرده است. همچنین اگر Branch protection به Commit مستقیم اجازه نمی‌دهد، باید طبق سیاست خود مخزن دسترسی ربات GitHub Actions را مجاز کنی یا روش تأیید مبتنی بر Pull Request را به‌کار ببری. این Workflow هیچ قانون محافظت شاخه‌ای را دور نمی‌زند.
-
-Commit ربات با `GITHUB_TOKEN` به‌تنهایی Workflow دیگری را به‌صورت خودکار اجرا نمی‌کند؛ به همین دلیل Manifest در همان Commit به‌روزرسانی می‌شود و حلقه تکرار CI ایجاد نمی‌شود. مطابق رفتار مستند GitHub، رویدادهای ناشی از `GITHUB_TOKEN` (به‌جز `workflow_dispatch` و `repository_dispatch`) Workflow جدید ایجاد نمی‌کنند.
-
-## اعتبارسنجی انجام‌شده
-
-- YAML فایل Workflow با PyYAML BaseLoader تجزیه شد.
-- تست رگرسیون جدید برای ترتیب Formatter، محدودیت مجوز و مسیر Commit موفق شد.
-- منطق Git worktree در یک مخزن آزمایشی واقعی با Remote شبیه‌سازی شد؛ تغییر هم‌زمان Manifest، انتقال فایل‌های Dart، Commit و Push و تطبیق SHA-256 Manifest با موفقیت بررسی شدند.
-
-این محیط Dart/Flutter SDK ندارد؛ بنابراین خود `dart format` در این محیط اجرا نشده است. اجرای واقعی Formatter، `flutter analyze`، تست‌های Flutter و Build پلتفرم‌ها در GitHub Actions بعد از اعمال این دو فایل انجام می‌شود. لاگ فعلی قبل از رسیدن به `flutter analyze` و `flutter test` متوقف شده است؛ پس درباره موفقیت آن مراحل ادعایی نمی‌شود.
+این بسته از لاگ CI، سورس ZIP موجود و فایل‌های اصلاحی قبلی ترکیب شده است. آزمون‌های Python، تجزیهٔ YAML، یکپارچگی ZIP و بررسی ایستا در این محیط انجام می‌شوند. این محیط Flutter/Dart SDK ندارد؛ بنابراین موفقیت واقعی `dart fix`، `flutter analyze`، `flutter test` یا Buildهای Android/iOS/macOS/Windows/Linux/Web تا زمان اجرای GitHub Actions قابل تأیید نیست.

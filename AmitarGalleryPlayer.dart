@@ -1,7 +1,7 @@
+// ignore_for_file: file_names
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
@@ -3168,9 +3168,10 @@ class AppController extends ChangeNotifier {
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
+    // ReorderableListView.onReorderItem already adjusts the insertion index
+    // after removing the dragged item. Do not apply the legacy decrement again.
     if (oldIndex < 0 || oldIndex >= _queueIds.length) return;
-    if (newIndex < 0 || newIndex > _queueIds.length) return;
-    if (newIndex > oldIndex) newIndex--;
+    if (newIndex < 0 || newIndex >= _queueIds.length) return;
     if (oldIndex == newIndex) return;
     final moved = _queueIds.removeAt(oldIndex);
     _queueIds.insert(newIndex, moved);
@@ -6888,7 +6889,7 @@ Future<void> _showQueue(BuildContext context, AppController c) async {
                       scrollController: scrollController,
                       buildDefaultDragHandles: true,
                       itemCount: c.queueEntries.length,
-                      onReorder: c.reorderQueue,
+                      onReorderItem: c.reorderQueue,
                       itemBuilder: (context, index) {
                         final item = c.queueEntries[index];
                         final selected = item.id == c.currentItem?.id;

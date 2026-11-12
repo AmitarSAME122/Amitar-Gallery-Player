@@ -1,0 +1,12 @@
+.github/workflows/build.yml
+pubspec.yaml
+pubspec.lock
+lib/AmitarGalleryPlayer.dart
+android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt
+tool/bootstrap_platforms.py
+tool/test_bootstrap_platforms.py
+tool/test_project_invariants.py
+DEPENDENCIES.md
+VALIDATION_REPORT.md
+CHANGELOG.md
+README_FA.md

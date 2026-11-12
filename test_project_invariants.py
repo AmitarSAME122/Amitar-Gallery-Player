@@ -226,6 +226,29 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertNotIn("contents: write", quality_job)
         self.assertIn("tool/build.py all --skip-bootstrap --skip-checks", workflow)
 
+    def test_ci_applies_analyzer_fixes_before_format_and_analysis(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        quick_fixes = workflow.index("run: dart fix --apply")
+        formatting = workflow.index("run: dart format lib test")
+        analysis = workflow.index("run: flutter analyze")
+        self.assertLess(quick_fixes, formatting)
+        self.assertLess(formatting, analysis)
+
+    def test_queue_reordering_uses_current_flutter_callback_contract(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("onReorderItem: c.reorderQueue", source)
+        start = source.index("void reorderQueue(int oldIndex, int newIndex)")
+        end = source.index("void moveToAlbum", start)
+        method = source[start:end]
+        self.assertNotIn("newIndex--", method)
+        self.assertIn("newIndex >= _queueIds.length", method)
+        self.assertIn("_queueIds.insert(newIndex, moved)", method)
+
+    def test_intentional_app_entrypoint_filename_is_documented_for_analyzer(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertTrue(source.startswith("// ignore_for_file: file_names"))
+        self.assertNotIn("import 'dart:typed_data';", source)
+
     def test_ci_triggers_on_project_branch_and_transfers_verified_wrapper(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("branches: [ Amitar, main, master ]", workflow)
