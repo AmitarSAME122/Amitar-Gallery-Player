@@ -136,6 +136,24 @@ def _is_verified_gradle_wrapper_jar(path: Path) -> bool:
         return False
 
 
+def ensure_unix_gradle_wrapper_executable() -> None:
+    """Restore the Gradle shell wrapper execute bit on Unix build runners.
+
+    ZIP exports and some web-based source uploads can lose Git's 100755 mode.
+    Flutter delegates Android Gradle invocation to this script, so normalize the
+    mode before any native build rather than relying on the archive transport.
+    Windows uses gradlew.bat and intentionally skips POSIX mode handling.
+    """
+    if sys.platform == "win32":
+        return
+    wrapper = ROOT / "android/gradlew"
+    if not wrapper.is_file():
+        raise FileNotFoundError(
+            "android/gradlew is missing after Flutter host generation; cannot build Android."
+        )
+    wrapper.chmod(wrapper.stat().st_mode | 0o100)
+
+
 def ensure_verified_gradle_wrapper_jar() -> None:
     """Install the official Gradle 8.14.6 Wrapper JAR and verify it before use.
 
@@ -637,6 +655,7 @@ def main() -> int:
         ensure_android_manifest()
         configure_android_gradle()
         ensure_verified_gradle_wrapper_jar()
+        ensure_unix_gradle_wrapper_executable()
         configure_apple_hosts()
         configure_linux_icon()
         missing = [name for name in PLATFORMS.split(",") if not (ROOT / name).is_dir()]

@@ -89,6 +89,18 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertNotIn('jitpack.io', first + app)
 
 
+    def test_unix_gradle_wrapper_execute_bit_is_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            wrapper = root / "android/gradlew"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            wrapper.chmod(0o644)
+            with mock.patch.object(bootstrap_platforms, "ROOT", root), \
+                 mock.patch.object(bootstrap_platforms.sys, "platform", "linux"):
+                bootstrap_platforms.ensure_unix_gradle_wrapper_executable()
+            self.assertTrue(wrapper.stat().st_mode & 0o100)
+
     def test_android_maven_diagnostic_checks_real_agp_module_not_only_marker(self) -> None:
         script = (bootstrap_platforms.ROOT / "tool/check_android_maven_windows.ps1").read_text(encoding="utf-8")
         self.assertIn("https://dl.google.com/dl/android/maven2", script)
@@ -319,6 +331,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                  mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
                  mock.patch.object(bootstrap_platforms, "configure_android_gradle", side_effect=configure_android), \
                  mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
                  mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
                  mock.patch.object(bootstrap_platforms, "configure_linux_icon"):
                 self.assertEqual(bootstrap_platforms.main(), 0)
@@ -356,6 +369,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                  mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
                  mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
                  mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
                  mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
                  mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_metadata):
                 self.assertEqual(bootstrap_platforms.main(), 0)
@@ -393,6 +407,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                  mock.patch.object(bootstrap_platforms, "ensure_android_manifest"), \
                  mock.patch.object(bootstrap_platforms, "configure_android_gradle"), \
                  mock.patch.object(bootstrap_platforms, "ensure_verified_gradle_wrapper_jar"), \
+                 mock.patch.object(bootstrap_platforms, "ensure_unix_gradle_wrapper_executable"), \
                  mock.patch.object(bootstrap_platforms, "configure_apple_hosts"), \
                  mock.patch.object(bootstrap_platforms, "configure_linux_icon", side_effect=mutate_then_fail):
                 with self.assertRaisesRegex(RuntimeError, "simulated later platform configuration failure"):

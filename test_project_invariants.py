@@ -202,37 +202,92 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertLess(restore, verify_restore)
         self.assertLess(verify_restore, python_tests)
 
-    def test_ci_formats_dart_and_persists_changes_with_minimum_write_scope(self) -> None:
+    def test_ci_uses_one_source_snapshot_for_every_native_build(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        self.assertIn("run: dart format lib test", workflow)
-        self.assertIn("run: dart format --output=none --set-exit-if-changed lib test", workflow)
-        self.assertIn("name: Collect tracked Dart files changed by formatting", workflow)
-        self.assertIn("name: Upload Dart formatter changes for safe branch persistence", workflow)
+        quality_job = workflow.split("  quality:", 1)[1].split("  linux-android-web:", 1)[0]
+        self.assertIn("python3 tool/validate_source_contracts.py", quality_job)
+        self.assertIn("dart format lib test", quality_job)
+        self.assertIn("dart format --output=none --set-exit-if-changed lib test", quality_job)
+        self.assertIn("tool/collect_ci_snapshot.py", quality_job)
+        self.assertIn("name: agp-quality-source-snapshot", quality_job)
+        self.assertNotIn("run: dart fix --apply", quality_job)
 
-        persist_start = workflow.index("  persist-dart-format:")
-        persist_end = workflow.index("  linux-android-web:", persist_start)
+        for job_name, next_job in (
+            ("linux-android-web", "windows"),
+            ("windows", "apple"),
+            ("apple", "persist-quality-source-snapshot"),
+        ):
+            job = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
+            bootstrap = job.index("tool/bootstrap_platforms.py")
+            source_download = job.index("agp-quality-source-snapshot")
+            lock_download = job.index("agp-pubspec-lock")
+            apply_snapshot = job.index("tool/apply_ci_snapshot.py")
+            enforce_lock = job.index("flutter pub get --enforce-lockfile")
+            build = job.index("tool/build.py")
+            self.assertLess(bootstrap, source_download)
+            self.assertLess(source_download, apply_snapshot)
+            self.assertLess(lock_download, apply_snapshot)
+            self.assertLess(apply_snapshot, enforce_lock)
+            self.assertLess(enforce_lock, build)
+
+    def test_quality_snapshot_persistence_commits_sources_lock_and_manifest_after_all_builds(self) -> None:
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        persist_start = workflow.index("  persist-quality-source-snapshot:")
+        persist_end = workflow.index("  publish-github-release:", persist_start)
         persist_job = workflow[persist_start:persist_end]
-        self.assertIn("needs: quality", persist_job)
+        self.assertIn("needs: [quality, linux-android-web, windows, apple]", persist_job)
         self.assertIn("if: github.event_name != 'pull_request' && github.ref_type == 'branch'", persist_job)
         self.assertIn("permissions:\n      contents: write", persist_job)
-        self.assertIn("actions/download-artifact@v8.0.2", persist_job)
-        self.assertIn('git diff --quiet "${GITHUB_SHA}" FETCH_HEAD -- "${formatted_files[@]}"', persist_job)
+        self.assertIn("agp-quality-source-snapshot", persist_job)
+        self.assertIn("agp-pubspec-lock", persist_job)
+        self.assertIn("tool/apply_ci_snapshot.py", persist_job)
+        self.assertIn('git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- "${protected_paths[@]}"', persist_job)
         self.assertIn('git worktree add --detach "$worktree_dir" FETCH_HEAD', persist_job)
+        self.assertIn('git add -- "${snapshot_files[@]}"', persist_job)
+        self.assertIn("git add -- pubspec.lock", persist_job)
         self.assertIn("python3 tool/update_source_checksums.py", persist_job)
-        self.assertIn('git add -- "${formatted_files[@]}" SHA256SUMS.txt', persist_job)
+        self.assertIn("git add -- SHA256SUMS.txt", persist_job)
         self.assertIn('git push origin "HEAD:${BRANCH_NAME}"', persist_job)
+        self.assertNotIn("contents: write", workflow.split("  quality:", 1)[1].split("  linux-android-web:", 1)[0])
 
-        quality_job = workflow.split("  quality:", 1)[1].split("  persist-dart-format:", 1)[0]
-        self.assertNotIn("contents: write", quality_job)
-        self.assertIn("tool/build.py all --skip-bootstrap --skip-checks", workflow)
-
-    def test_ci_applies_analyzer_fixes_before_format_and_analysis(self) -> None:
+    def test_ci_does_not_run_unsafe_analyzer_quick_fixes(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        quick_fixes = workflow.index("run: dart fix --apply")
-        formatting = workflow.index("run: dart format lib test")
+        self.assertNotIn("run: dart fix --apply", workflow)
+        contract = workflow.index("python3 tool/validate_source_contracts.py")
+        icons = workflow.index("dart run flutter_launcher_icons")
+        formatting = workflow.index("dart format lib test")
         analysis = workflow.index("run: flutter analyze")
-        self.assertLess(quick_fixes, formatting)
+        tests = workflow.index("run: flutter test --reporter expanded")
+        self.assertLess(contract, icons)
+        self.assertLess(icons, formatting)
         self.assertLess(formatting, analysis)
+        self.assertLess(analysis, tests)
+
+    def test_snapshot_helpers_are_present_and_source_contract_is_executable(self) -> None:
+        for relative in (
+            "tool/collect_ci_snapshot.py",
+            "tool/apply_ci_snapshot.py",
+            "tool/validate_source_contracts.py",
+            "tool/test_ci_snapshot.py",
+        ):
+            self.assertTrue((ROOT / relative).is_file(), relative)
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tool/validate_source_contracts.py")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_manifest_refresh_workflow_is_manual_to_avoid_racing_build_persistence(self) -> None:
+        workflow = (ROOT / ".github/workflows/refresh-source-manifest.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("  push:", workflow)
+        self.assertIn("permissions:\n      contents: write", workflow)
+        self.assertIn("tool/update_source_checksums.py", workflow)
 
     def test_queue_reordering_uses_current_flutter_callback_contract(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
@@ -356,6 +411,17 @@ class ProjectInvariantTests(unittest.TestCase):
     def test_source_checksum_manifest_verifies_all_listed_files(self) -> None:
         import hashlib
         import importlib.util
+        import subprocess
+
+        repository = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if repository.returncode != 0:
+            self.skipTest("Canonical source manifest must be regenerated from the complete Git index.")
 
         generator_path = ROOT / "tool/update_source_checksums.py"
         spec = importlib.util.spec_from_file_location("agp_checksum_generator", generator_path)
