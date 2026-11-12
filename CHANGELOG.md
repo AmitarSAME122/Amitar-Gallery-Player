@@ -46,6 +46,13 @@ Python build-tool tests and packaging checks can run without Flutter. Dart forma
 - Rebuilt the A3 poster with the transparent artwork composited over the poster design, not baked into the icon file.
 
 
+### Dependency and Android scoped-URI compatibility correction
+
+- Removed the incompatible direct `cross_file ^0.4.0` constraint. `file_picker` continues to use its supported `cross_file 0.3.x` API transitively, avoiding a Pub solver conflict without forcing a package override.
+- Replaced app-side `XFile 0.4` file-system calls with the existing `universal_io` abstraction.
+- Added an Android `ContentResolver` bridge for legacy `content://` library entries. It copies in 64 KiB chunks to an app-cache file, enforces a per-operation byte ceiling, runs away from the UI thread, and is cleaned up by the Dart caller.
+- Kept the native file picker, mobile staged imports, persisted local file paths and existing gallery/player behavior; no second file-picker or media playback dependency was introduced.
+
 ### Final source and runtime-safety audit
 
 - Capped native device-library and selected-folder scans at 20,000 items per operation and made the truncation state explicit.

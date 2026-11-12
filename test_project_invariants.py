@@ -222,6 +222,48 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertIn("package-ecosystem: github-actions", config)
         self.assertEqual(config.count("interval: monthly"), 2)
 
+
+    def test_file_picker_dependency_does_not_conflict_with_cross_file_040(self) -> None:
+        pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
+        source = SOURCE.read_text(encoding="utf-8")
+        lock = (ROOT / "pubspec.lock").read_text(encoding="utf-8")
+        self.assertIn("file_picker: ^13.3.2", pubspec)
+        self.assertNotRegex(pubspec, r"(?m)^\s*cross_file:")
+        self.assertNotIn("package:cross_file/", source)
+        self.assertNotIn("XFile.", source)
+        self.assertIn("name: cross_file", lock)
+        import re
+        match = re.search(r"(?ms)^  cross_file:\n(.*?)(?=^  [A-Za-z0-9_]+:\n|\Z)", lock)
+        self.assertIsNotNone(match)
+        cross_file_block = match.group(1)
+        self.assertIn("dependency: transitive", cross_file_block)
+        self.assertIn('version: "0.3.5+5"', cross_file_block)
+        for obsolete in (
+            "cross_file_android:",
+            "cross_file_darwin:",
+            "cross_file_io:",
+            "cross_file_platform_interface:",
+            "cross_file_web:",
+        ):
+            self.assertNotIn(obsolete, lock)
+
+    def test_android_legacy_content_uri_bridge_is_bounded_and_off_ui_thread(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        activity = (ROOT / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("_readAndroidContentUriBytes", source)
+        self.assertIn("maxBytes: maxBytes", source)
+        self.assertIn("com.amitar.amitar_gallery_player/content_uri", source)
+        self.assertIn("Executors.newSingleThreadExecutor()", activity)
+        self.assertIn("contentResolver.openInputStream(uri)", activity)
+        self.assertIn("COPY_BUFFER_BYTES = 64 * 1024", activity)
+        self.assertIn("totalBytes > maxBytes - count.toLong()", activity)
+        self.assertIn("runOnUiThread { result.success(copiedPath) }", activity)
+        self.assertIn("contentUriExecutor.shutdown()", activity)
+        self.assertIn("maxBytes > MAX_COPY_BYTES", activity)
+        self.assertIn("uri.scheme?.equals(ContentResolver.SCHEME_CONTENT, ignoreCase = true)", activity)
+        bootstrap = (ROOT / "tool/bootstrap_platforms.py").read_text(encoding="utf-8")
+        self.assertIn("MainActivity.kt", bootstrap)
+
     def test_source_checksum_generator_uses_tracked_files_and_excludes_local_android_state(self) -> None:
         generator = (ROOT / "tool/update_source_checksums.py").read_text(encoding="utf-8")
         self.assertIn('["git", "ls-files", "-z"]', generator)

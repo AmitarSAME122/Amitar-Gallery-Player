@@ -22,7 +22,7 @@
 
 - تنظیمات واقعی `settings.gradle.kts`، `build.gradle.kts`، `gradle.properties`، Wrapper، bootstrap و تست‌ها با یک مجموعهٔ نسخهٔ واحد هماهنگ شدند.
 - فایل `android/local.properties` ممکن است در زمان اجرای `flutter create` به‌صورت محلی در Runner تولید شود؛ آزمون CI اکنون وضعیت Git index را بررسی می‌کند، نه نبود فایل موقت در working tree. مسیرهای محلی SDK و کلیدهای امضا در `.gitignore` هستند و فایل‌های محلی/امضا از manifest هش سورس نیز کنار گذاشته می‌شوند.
-- نسخهٔ مستقیم `cross_file` به `^0.4.0` تغییر کرد و override تکراری حذف شد.
+- وابستگی مستقیم ناسازگار `cross_file ^0.4.0` حذف شد؛ `file_picker` نسخهٔ سازگار `cross_file 0.3.5+5` را به‌صورت transitive دریافت می‌کند. APIهای `XFile 0.4` از کد برنامه حذف شده‌اند؛ خواندن مسیرهای محلی با `universal_io` و خواندن URIهای قدیمی Android با پل محدود و جریانی `ContentResolver` انجام می‌شود.
 - URLهای lockfile به مخزن canonical یعنی `pub.dev` یکسان‌سازی شدند.
 - فایل‌های cache، خروجی build، فایل‌های IDE، cache پایتون و فایل پشتیبان قدیمی از بستهٔ سورس کنار گذاشته شدند.
 - اسکریپت‌های bootstrap میزبان‌های بومی iOS، macOS، Windows، Linux و Web را در runner مناسب ایجاد می‌کنند؛ تنظیم Android نیز idempotent است. Wrapper JAR از منبع upstream ثابت دریافت، checksum و ساختار آن بررسی، و سپس از طریق artifact کوتاه‌عمر بین runnerها منتقل می‌شود.
