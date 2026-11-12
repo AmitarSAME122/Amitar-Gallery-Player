@@ -2547,16 +2547,9 @@ class AppController extends ChangeNotifier {
           playable = Media(localFile.path);
         } else if (sourceUri?.scheme.toLowerCase() == 'content') {
           // Android SAF content URIs are not in libmpv's default protocol
-          // whitelist. A bounded in-memory fallback supports modest files
-          // while avoiding unbounded RAM use for large video/audio files.
-          if (item.readBytes == null) {
-            throw UnsupportedError(
-              t(
-                'مجوز خواندن این فایل پس از بازگشایی برنامه در دسترس نیست؛ فایل را دوباره انتخاب کنید.',
-                'The scoped file handle is no longer available. Import this file again.',
-              ),
-            );
-          }
+          // whitelist. Use the same bounded reader as image previews. This
+          // also supports saved URI entries after restart because transient
+          // PlatformFile callbacks are not persisted in Hive.
           if (item.sizeBytes > _maxScopedPlaybackBytes) {
             throw UnsupportedError(
               t(
@@ -2565,7 +2558,10 @@ class AppController extends ChangeNotifier {
               ),
             );
           }
-          final bytes = await item.readBytes!();
+          final bytes = await readEntryBytes(
+            item,
+            maxBytes: _maxScopedPlaybackBytes,
+          );
           if (bytes.length > _maxScopedPlaybackBytes) {
             throw UnsupportedError(
               t(

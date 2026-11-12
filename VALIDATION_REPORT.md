@@ -1,79 +1,42 @@
-# گزارش اعتبارسنجی — اصلاح خطای Flutter Analyze
+# گزارش اعتبارسنجی بستهٔ اصلاح کد اصلی
 
-## ورودی CI بررسی‌شده
+## ورودی
 
-- مخزن: `AmitarSAME122/Amitar-Gallery-Player`
-- شاخه: `Amitar`
-- Commit: `e334188d7d1ffbb43c3e68a4791b688edfa03e0b`
-- Workflow: `Verify and build AmitarGalleryPlayer`
-- Job متوقف‌شده: `Analyze and regression tests`
-- مرحلهٔ متوقف‌شده: `flutter analyze`
+- Repository: `AmitarSAME122/Amitar-Gallery-Player`
+- Branch: `Amitar`
+- Commit دیده‌شده در آخرین Log: `b79c7067d3db287df8dc5a04d2b46f9fd5dcdbd9`
+- Failed step: `flutter analyze`
 
-## نتیجهٔ اجرای واقعی در GitHub Actions
+## خطای واقعی
 
-| مرحله | نتیجهٔ لاگ |
-|---|---|
-| Checkout شاخه | موفق |
-| تنظیم Java 17 و Flutter 3.47.9 | موفق |
-| Bootstrap میزبان‌های پلتفرم | موفق |
-| تولید و بررسی Source Manifest | موفق |
-| نصب وابستگی‌های Python | موفق |
-| تست‌های Python | ۶۲ از ۶۲ موفق |
-| `flutter pub get` | موفق |
-| تولید آیکون‌های پلتفرم | موفق |
-| `dart fix --apply` | ۱۳۳ اصلاح اعمال‌شده |
-| `dart format lib test` | ۳ فایل قالب‌بندی‌شده |
-| `flutter analyze` | ناموفق؛ ۱۶ مورد |
+آخرین Log هنوز ۱۱ فراخوانی `XFile.fileSystem` و ۲ فراخوانی `XFile.scopedStorage` دارد؛ به‌علاوهٔ سه مورد informational مربوط به `file_names`، `unnecessary_import` و `deprecated_member_use`. `dart fix --apply` تعداد ۱۳۳ quick fix اعمال کرده، اما APIهای ناموجود را تبدیل نمی‌کند. همچنین همان مرحله به علت import مستقیم `cross_file` آن را در `pubspec.yaml` مستقیم کرده است.
 
-### تشخیص دقیق Analyzer
+## تغییر کد
 
-از ۱۶ مورد گزارش‌شده:
+- تمام importها و فراخوانی‌های XFile از فایل اصلی حذف شدند.
+- مسیرهای فایل عادی به `universal_io.File` منتقل شدند.
+- URIهای قدیمی Android از MethodChannel/ContentResolver عبور می‌کنند.
+- مسیر پخش URI ذخیره‌شده پس از راه‌اندازی مجدد اصلاح شد تا به `readBytes` موقت وابسته نباشد.
+- قید مستقیم cross_file از `pubspec.yaml` حذف شد و Lockfile آن را transitive ثبت می‌کند.
+- صف پخش از API جدید `onReorderItem` استفاده می‌کند.
 
-- ۱۱ مورد `undefined_method` برای `XFile.fileSystem`؛
-- ۲ مورد `undefined_method` برای `XFile.scopedStorage`؛
-- یک مورد `file_names` برای نام عمدی ورودی برنامه؛
-- یک مورد `unnecessary_import` برای `dart:typed_data`؛
-- یک مورد `deprecated_member_use` برای `onReorder`.
+## آزمون‌های اجراشده
 
-نسخهٔ حل‌شدهٔ `cross_file` در لاگ `0.3.5+5` است. کد شاخه هنوز سازنده‌های متعلق به API جدیدتر `0.4.x` را فراخوانی کرده است. Quick Fix خودکار، APIهای حذف‌شده را تبدیل نمی‌کند؛ به همین علت با وجود ۱۳۳ Quick Fix و اجرای موفق Formatter، Analyzer شکست خورده است.
-
-## اصلاحات موجود در بسته
-
-- `lib/AmitarGalleryPlayer.dart`: حذف استفاده از APIهای ناسازگار، استفاده از `universal_io` برای فایل‌های محلی، پل Android برای URIهای قدیمی `content://`، رفع سه پیام اطلاعاتی، اصلاح callback صف.
-- `pubspec.yaml` و `pubspec.lock`: عدم وابستگی مستقیم به `cross_file 0.4.x`؛ حفظ `cross_file 0.3.5+5` به‌صورت transitive.
-- `MainActivity.kt`: پیاده‌سازی MethodChannel با `ContentResolver`، I/O در executor، بافر ۶۴ KiB، محدودیت حجم و پاک‌سازی فایل ناقص در خطا.
-- `build.yml`: اجرای Quick Fix و Formatter، اعتبارسنجی نتیجه و Job مجزای ثبت تغییرات Formatter با دسترسی نوشتن محدود.
-- `bootstrap_platforms.py` و تست‌ها: حفظ MainActivity سفارشی و پوشش Regression برای bootstrap و APIهای مورد استفاده.
-
-## اعتبارسنجی مستقل انجام‌شده برای بسته
-
-| بررسی | نتیجه |
+| آزمون | نتیجه |
 |---|---:|
-| `python3 -m compileall -q tool` | موفق |
-| `test_bootstrap_platforms.py` | ۱۸ از ۱۸ موفق |
-| `test_project_invariants.py` | ۲۴ از ۲۴ موفق |
-| `test_release_version.py` | ۳ از ۳ موفق |
-| تست‌های منتخب Python | ۴۵ از ۴۵ موفق |
-| تجزیهٔ YAML Workflow | موفق |
-| ZIP integrity و SHA-256 | موفق |
+| Bootstrap | ۱۸/۱۸ موفق |
+| Project invariants | ۲۵/۲۵ موفق |
+| Release version | ۳/۳ موفق |
+| کل تست‌های منتخب | ۴۶/۴۶ موفق |
+| Python compileall | موفق |
+| Workflow YAML parse | موفق |
+| نبود import و APIهای XFile در Dart | موفق |
+| ZIP integrity | موفق |
 
-تست‌های منتخب در یک fixture محلی Git اجرا شدند تا رفتار Manifest مبتنی بر Git index نیز قابل بررسی باشد. فایل `android/gradlew` در fixture دارای مجوز اجرایی شد؛ ZIPهای ساخته‌شده روی برخی میزبان‌ها لزوماً bit اجرایی Unix را نگه نمی‌دارند و بستهٔ اصلاحی این فایل را جایگزین نمی‌کند.
+برای اجرای تست‌های وابسته به Git Manifest، سورس در یک مخزن Git آزمایشی قرار گرفت، bit اجرایی `android/gradlew` که ZIP حمل نمی‌کند بازیابی شد و Manifest از روی checkout آزمایشی تولید شد.
 
-## محدودیت فایل منبع کوچک‌شده
+## محدودیت‌ها
 
-در ZIP ارسالی، محتوای `assets/` و `presentation/` عمداً حذف شده بود. به همین علت اجرای کامل مجموعهٔ تست روی آن ZIP، تست‌هایی را که به تصاویر برند، آیکون‌ها و پوستر وابسته‌اند با `FileNotFoundError` مواجه می‌کند. این خطاها از حذف فایل‌ها در بستهٔ ارسالی ناشی می‌شوند و دربارهٔ فایل‌های کامل شاخهٔ GitHub نتیجه‌گیری نمی‌کنند.
+ZIP سورس کاربر عمداً پوشه‌های `assets/` و `presentation/` را حذف کرده است. بنابراین تست‌های بصری/برندینگ وابسته به آن فایل‌ها در این محیط قابل اجرا نیستند و این گزارش آن‌ها را موفق اعلام نمی‌کند.
 
-همین‌طور Flutter و Dart SDK در محیط ساخت این بسته نصب نبودند؛ پس `flutter analyze`، `flutter test` و Build واقعی پلتفرم‌ها در این محیط اجرا نشده‌اند. نتیجهٔ نهایی Analyzer فقط پس از Commit کردن این بسته و اجرای CI واقعی مشخص می‌شود.
-
-## تأیید مورد انتظار در اجرای بعدی
-
-پس از اعمال بسته، موارد زیر باید در GitHub Actions بررسی شوند:
-
-1. `flutter pub get` بدون تغییر مستقیم‌شدن `cross_file`.
-2. `dart fix --apply` بدون افزودن وابستگی غیرضروری.
-3. `dart format --output=none --set-exit-if-changed lib test` بدون تغییر باقی‌مانده.
-4. `flutter analyze` با صفر issue.
-5. `flutter test --reporter expanded`.
-6. Jobهای build برای Linux/Android/Web، Windows و macOS/iOS.
-
-این گزارش هیچ‌یک از Buildهای بعدی را پیشاپیش موفق اعلام نمی‌کند.
+Flutter/Dart SDK در محیط آماده‌سازی حاضر نبود. بنابراین اجرای واقعی `flutter pub get`، `dart fix`، `dart format`، `flutter analyze`، `flutter test`، Gradle و Buildهای Android، Web، Linux، Windows، macOS و iOS از این محیط ممکن نشد. آخرین CI واقعی ۶۲ تست Python و `flutter pub get` را موفق نشان داده، اما Analyzer را شکست داده است. اجرای CI پس از جایگزینی کد اصلی هنوز لازم است.

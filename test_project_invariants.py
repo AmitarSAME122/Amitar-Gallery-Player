@@ -289,6 +289,16 @@ class ProjectInvariantTests(unittest.TestCase):
         ):
             self.assertNotIn(obsolete, lock)
 
+    def test_persisted_content_uri_playback_uses_bounded_reader_after_restart(self) -> None:
+        source = (ROOT / "lib/AmitarGalleryPlayer.dart").read_text(encoding="utf-8")
+        play_start = source.index("  Future<void> playAt(")
+        play_end = source.index("  Future<void> togglePlayback(", play_start)
+        play_method = source[play_start:play_end]
+        self.assertIn("sourceUri?.scheme.toLowerCase() == 'content'", play_method)
+        self.assertIn("readEntryBytes(\n            item,\n            maxBytes: _maxScopedPlaybackBytes,\n          )", play_method)
+        self.assertNotIn("item.readBytes == null", play_method)
+        self.assertNotIn("item.readBytes!()", play_method)
+
     def test_android_legacy_content_uri_bridge_is_bounded_and_off_ui_thread(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
         activity = (ROOT / "android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt").read_text(encoding="utf-8")

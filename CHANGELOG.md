@@ -76,3 +76,9 @@ Python build-tool tests and packaging checks can run without Flutter. Dart forma
 - Migrated the queue UI to `ReorderableListView.onReorderItem` and corrected the reorder index handling.
 - Added bounded Android `ContentResolver` compatibility for persisted `content://` references.
 - Updated this report against the actual CI output: 62 Python tooling tests passed; the remaining 16 Analyzer findings were 13 obsolete XFile API calls and 3 informational lints.
+
+### Core source repair follow-up
+
+- Removed the remaining dependency on non-existent `XFile.fileSystem` and `XFile.scopedStorage` constructors from the main application source.
+- Routed persisted Android `content://` playback through the bounded reader so playback does not depend on an in-memory picker callback surviving an app restart.
+- Added a regression invariant covering persisted content-URI playback.
