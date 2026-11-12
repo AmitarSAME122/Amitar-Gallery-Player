@@ -67,8 +67,29 @@ jobs:
         run: flutter pub get
       - name: Generate and validate app icons
         run: dart run flutter_launcher_icons
-      - name: Check Dart formatting without mutating the checkout
+      - name: Apply canonical Dart formatting
+        run: dart format lib test
+      - name: Verify canonical Dart formatting
         run: dart format --output=none --set-exit-if-changed lib test
+      - name: Collect tracked Dart files changed by formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/agp-dart-format"
+          mkdir -p "$output_dir"
+          git diff --name-only --diff-filter=ACMRT HEAD -- lib test | grep -E '\.dart$' > "$output_dir/changed-files.txt" || true
+          while IFS= read -r source_file; do
+            [[ -n "$source_file" ]] || continue
+            mkdir -p "$output_dir/$(dirname -- "$source_file")"
+            cp -- "$source_file" "$output_dir/$source_file"
+          done < "$output_dir/changed-files.txt"
+      - name: Upload Dart formatter changes for safe branch persistence
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: agp-dart-format-sources
+          path: ${{ runner.temp }}/agp-dart-format/
+          if-no-files-found: error
+          retention-days: 1
       - name: Static analysis
         run: flutter analyze
       - name: Regression tests
@@ -80,6 +101,94 @@ jobs:
           path: pubspec.lock
           if-no-files-found: error
           retention-days: 1
+
+  persist-dart-format:
+    name: Persist canonical Dart formatting
+    if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Write permission is isolated to this tiny job; quality/build jobs stay read-only.
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the triggering repository branch
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Download formatter output from the quality job
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: agp-dart-format-sources
+          path: ${{ runner.temp }}/agp-dart-format
+      - name: Commit formatted Dart files and refreshed source checksums
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/agp-dart-format"
+          files_list="$artifact_dir/changed-files.txt"
+          if [[ ! -f "$files_list" ]]; then
+            echo "::error::The formatter artifact does not contain changed-files.txt."
+            exit 1
+          fi
+          mapfile -t formatted_files < "$files_list"
+          if (( ${#formatted_files[@]} == 0 )); then
+            echo "No tracked Dart formatting changes need to be persisted."
+            exit 0
+          fi
+          for source_file in "${formatted_files[@]}"; do
+            case "$source_file" in
+              lib/*.dart|test/*.dart) ;;
+              *) echo "::error::Unexpected formatter artifact path: $source_file"; exit 1 ;;
+            esac
+            if [[ ! -f "$artifact_dir/$source_file" ]]; then
+              echo "::error::Formatter artifact is missing $source_file."
+              exit 1
+            fi
+          done
+
+          # Retry once if a manifest-only commit advances the branch while this job runs.
+          for attempt in 1 2; do
+            git fetch --no-tags origin "${BRANCH_NAME}"
+            if ! git diff --quiet "${GITHUB_SHA}" FETCH_HEAD -- "${formatted_files[@]}"; then
+              echo "::error::A Dart source file changed remotely after this workflow started; refusing to overwrite it."
+              exit 1
+            fi
+
+            worktree_dir="$RUNNER_TEMP/amitar-dart-format-${attempt}"
+            git worktree add --detach "$worktree_dir" FETCH_HEAD
+            for source_file in "${formatted_files[@]}"; do
+              mkdir -p "$worktree_dir/$(dirname -- "$source_file")"
+              cp -- "$artifact_dir/$source_file" "$worktree_dir/$source_file"
+            done
+
+            if (
+              set -euo pipefail
+              cd "$worktree_dir"
+              python3 tool/update_source_checksums.py
+              git add -- "${formatted_files[@]}" SHA256SUMS.txt
+              if git diff --cached --quiet; then
+                echo "The latest branch already contains the canonical formatting and checksums."
+                exit 0
+              fi
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git commit -m "style(ci): apply canonical Dart formatting"
+              git push origin "HEAD:${BRANCH_NAME}"
+            ); then
+              git worktree remove --force "$worktree_dir"
+              exit 0
+            fi
+
+            git worktree remove --force "$worktree_dir" || true
+            if (( attempt == 1 )); then sleep 2; fi
+          done
+
+          echo "::error::Could not persist Dart formatting. Check Actions contents write permission and branch protection rules."
+          exit 1
 
   linux-android-web:
     name: Linux + Android + Web release-mode builds
