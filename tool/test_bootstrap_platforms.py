@@ -243,32 +243,41 @@ class BootstrapConfigurationTests(unittest.TestCase):
             self.assertIn("MACOSX_DEPLOYMENT_TARGET = 12.0;", text)
 
 
-    def test_flutter_create_preserves_tracked_metadata_on_success(self) -> None:
+    def test_flutter_create_preserves_tracked_metadata_and_lockfile_on_success(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             metadata = root / ".metadata"
+            lockfile = root / "pubspec.lock"
             original = b"tracked flutter metadata\n"
+            original_lockfile = b"tracked dependency lock\n"
             metadata.write_bytes(original)
+            lockfile.write_bytes(original_lockfile)
 
             def fake_run(command: list[str]) -> None:
                 self.assertEqual(command[0:2], ["flutter", "create"])
                 metadata.write_bytes(b"runner-specific generated metadata\n")
+                lockfile.write_bytes(b"rewritten lock by flutter scaffold\n")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
                  mock.patch.object(bootstrap_platforms, "run", side_effect=fake_run):
                 bootstrap_platforms.run_flutter_create_preserving_metadata()
 
             self.assertEqual(metadata.read_bytes(), original)
+            self.assertEqual(lockfile.read_bytes(), original_lockfile)
 
-    def test_flutter_create_restores_tracked_metadata_when_command_fails(self) -> None:
+    def test_flutter_create_restores_tracked_metadata_and_lockfile_when_command_fails(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             metadata = root / ".metadata"
+            lockfile = root / "pubspec.lock"
             original = b"tracked flutter metadata\n"
+            original_lockfile = b"tracked dependency lock\n"
             metadata.write_bytes(original)
+            lockfile.write_bytes(original_lockfile)
 
             def fake_run(command: list[str]) -> None:
                 metadata.write_bytes(b"partially generated metadata\n")
+                lockfile.write_bytes(b"partially rewritten lock\n")
                 raise RuntimeError("simulated flutter create failure")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
@@ -277,9 +286,10 @@ class BootstrapConfigurationTests(unittest.TestCase):
                     bootstrap_platforms.run_flutter_create_preserving_metadata()
 
             self.assertEqual(metadata.read_bytes(), original)
+            self.assertEqual(lockfile.read_bytes(), original_lockfile)
 
 
-    def test_main_restores_metadata_after_all_bootstrap_stages(self) -> None:
+    def test_main_restores_metadata_and_lockfile_after_all_bootstrap_stages(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
@@ -287,13 +297,17 @@ class BootstrapConfigurationTests(unittest.TestCase):
             app.parent.mkdir(parents=True)
             app.write_text("// fixture\n", encoding="utf-8")
             metadata = root / ".metadata"
+            lockfile = root / "pubspec.lock"
             original = b"tracked metadata before complete bootstrap\n"
+            original_lockfile = b"tracked lock before complete bootstrap\n"
             metadata.write_bytes(original)
+            lockfile.write_bytes(original_lockfile)
             for platform in bootstrap_platforms.PLATFORMS.split(","):
                 (root / platform).mkdir(parents=True, exist_ok=True)
 
             def mutate_metadata() -> None:
                 metadata.write_bytes(b"metadata changed by a later platform stage\n")
+                lockfile.write_bytes(b"lock changed by a later platform stage\n")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
                  mock.patch.object(bootstrap_platforms, "APP_ENTRYPOINT", app), \
@@ -309,8 +323,9 @@ class BootstrapConfigurationTests(unittest.TestCase):
                 self.assertEqual(bootstrap_platforms.main(), 0)
 
             self.assertEqual(metadata.read_bytes(), original)
+            self.assertEqual(lockfile.read_bytes(), original_lockfile)
 
-    def test_main_restores_metadata_when_a_later_bootstrap_stage_fails(self) -> None:
+    def test_main_restores_metadata_and_lockfile_when_a_later_bootstrap_stage_fails(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
@@ -318,13 +333,17 @@ class BootstrapConfigurationTests(unittest.TestCase):
             app.parent.mkdir(parents=True)
             app.write_text("// fixture\n", encoding="utf-8")
             metadata = root / ".metadata"
+            lockfile = root / "pubspec.lock"
             original = b"tracked metadata before failing bootstrap\n"
+            original_lockfile = b"tracked lock before failing bootstrap\n"
             metadata.write_bytes(original)
+            lockfile.write_bytes(original_lockfile)
             for platform in bootstrap_platforms.PLATFORMS.split(","):
                 (root / platform).mkdir(parents=True, exist_ok=True)
 
             def mutate_then_fail() -> None:
                 metadata.write_bytes(b"partially changed metadata\n")
+                lockfile.write_bytes(b"partially changed dependency lock\n")
                 raise RuntimeError("simulated later platform configuration failure")
 
             with mock.patch.object(bootstrap_platforms, "ROOT", root), \
@@ -342,6 +361,7 @@ class BootstrapConfigurationTests(unittest.TestCase):
                     bootstrap_platforms.main()
 
             self.assertEqual(metadata.read_bytes(), original)
+            self.assertEqual(lockfile.read_bytes(), original_lockfile)
 
     def test_generated_main_entrypoint_is_removed_but_user_main_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

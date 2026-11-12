@@ -534,32 +534,48 @@ def configure_linux_icon() -> None:
     runner.write_text(content, encoding="utf-8")
 
 
-def _restore_metadata_snapshot(metadata_path: Path, original_metadata: bytes | None) -> None:
-    """Atomically restore the exact tracked Flutter metadata bytes, if present."""
-    if original_metadata is None:
+def _restore_project_file_snapshot(path: Path, original_bytes: bytes | None) -> None:
+    """Atomically restore a tracked project file, including its prior absence."""
+    if original_bytes is None:
+        # Do not leave a newly generated file behind when it was absent before
+        # bootstrap (for example, in a minimal fixture or a fresh checkout).
+        if path.is_file():
+            path.unlink()
         return
-    if metadata_path.is_file() and metadata_path.read_bytes() == original_metadata:
+    if path.is_file() and path.read_bytes() == original_bytes:
         return
 
-    temporary_path = metadata_path.with_name(f".{metadata_path.name}.restore.tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.restore.tmp")
     try:
-        temporary_path.write_bytes(original_metadata)
-        temporary_path.replace(metadata_path)
+        temporary_path.write_bytes(original_bytes)
+        temporary_path.replace(path)
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
 
 
-def run_flutter_create_preserving_metadata() -> None:
-    """Generate platform hosts without rewriting tracked project metadata.
+def _capture_project_file_snapshots() -> list[tuple[Path, bytes | None]]:
+    """Capture files that host scaffolding must never rewrite in the source tree."""
+    paths = (ROOT / ".metadata", ROOT / "pubspec.lock")
+    return [(path, path.read_bytes() if path.is_file() else None) for path in paths]
 
-    `flutter create` may update `.metadata` to the exact revision of the SDK
-    installed on the runner. Restore its original bytes even when Flutter exits
-    with an error. `main()` also guards the complete bootstrap lifecycle because
-    a later host-configuration step must not alter this tracked source file.
+
+def _restore_project_file_snapshots(snapshots: list[tuple[Path, bytes | None]]) -> None:
+    """Restore all captured project files even when a later step raises."""
+    for path, original_bytes in snapshots:
+        _restore_project_file_snapshot(path, original_bytes)
+
+
+def run_flutter_create_preserving_metadata() -> None:
+    """Generate host projects without changing tracked metadata or dependency locks.
+
+    Flutter scaffolding may update `.metadata` for the installed SDK. Guard the
+    checked-in `pubspec.lock` as well: dependency resolution is deliberately
+    deferred to the dedicated `flutter pub get` step in the CI workflow. Both
+    files are restored byte-for-byte even if `flutter create` fails.
     """
-    metadata_path = ROOT / ".metadata"
-    original_metadata = metadata_path.read_bytes() if metadata_path.is_file() else None
+    snapshots = _capture_project_file_snapshots()
     try:
         run([
             "flutter", "create", "--org=com.amitar",
@@ -567,7 +583,7 @@ def run_flutter_create_preserving_metadata() -> None:
             f"--platforms={PLATFORMS}", "--no-pub", ".",
         ])
     finally:
-        _restore_metadata_snapshot(metadata_path, original_metadata)
+        _restore_project_file_snapshots(snapshots)
 
 
 def remove_generated_default_entrypoints(*, had_main: bool, had_widget_test: bool) -> None:
@@ -589,10 +605,9 @@ def main() -> int:
         parser.error("The project must contain pubspec.yaml and lib/AmitarGalleryPlayer.dart.")
 
     # Guard the entire operation. The inner Flutter-create guard handles the
-    # scaffold command itself; this outer guard also protects against future
-    # platform-specific configuration code or tooling touching .metadata later.
-    metadata_path = ROOT / ".metadata"
-    original_metadata = metadata_path.read_bytes() if metadata_path.is_file() else None
+    # scaffold command itself; this outer guard also protects both SDK metadata
+    # and the checked-in dependency lock from later host-configuration steps.
+    project_file_snapshots = _capture_project_file_snapshots()
     try:
         if not args.skip_host_generation:
             if shutil.which("flutter") is None:
@@ -617,7 +632,7 @@ def main() -> int:
         print("Note: host generation does not install platform SDKs, signing certificates or native build tools.")
         return 0
     finally:
-        _restore_metadata_snapshot(metadata_path, original_metadata)
+        _restore_project_file_snapshots(project_file_snapshots)
 
 
 if __name__ == "__main__":

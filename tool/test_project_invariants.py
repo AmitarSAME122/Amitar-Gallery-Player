@@ -192,13 +192,15 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"actions/(?:checkout|setup-java|upload-artifact|download-artifact)@v\d+\s")
 
 
-    def test_quality_job_restores_tracked_metadata_before_source_manifest_tests(self) -> None:
+    def test_quality_job_restores_tracked_metadata_and_lockfile_before_source_manifest_tests(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         bootstrap = workflow.index("run: python3 tool/bootstrap_platforms.py")
-        restore = workflow.index("git restore --source=HEAD --worktree -- .metadata")
+        restore = workflow.index("git restore --source=HEAD --worktree -- .metadata pubspec.lock")
+        verify_restore = workflow.index("git diff --exit-code HEAD -- .metadata pubspec.lock")
         python_tests = workflow.index("python3 -m unittest discover -s tool -p 'test_*.py' -v")
         self.assertLess(bootstrap, restore)
-        self.assertLess(restore, python_tests)
+        self.assertLess(restore, verify_restore)
+        self.assertLess(verify_restore, python_tests)
 
     def test_ci_formatting_is_non_mutating_and_linux_bootstrap_is_not_repeated(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
