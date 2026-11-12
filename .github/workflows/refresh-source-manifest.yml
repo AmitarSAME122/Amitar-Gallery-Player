@@ -1,52 +1,49 @@
-name: Refresh source checksum manifest
+name: Refresh source checksum manifest (manual recovery)
 
+# Normal branch pushes are handled transactionally by build.yml after the
+# quality and all native build jobs succeed. This manual-only workflow exists
+# for repository maintenance and avoids racing the build workflow's source
+# snapshot/manifest commit.
 on:
-  push:
-    branches: [ Amitar, main, master ]
-    paths-ignore:
-      - 'SHA256SUMS.txt'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: amitar-source-manifest-${{ github.ref }}
+  group: amitar-source-manifest-manual-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   refresh:
-    name: Regenerate and commit canonical source checksums
+    name: Regenerate canonical source checksums
     if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - name: Checkout the selected GitHub branch
+      - name: Checkout selected branch
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
-
       - name: Verify Python runtime
         run: python3 --version
-
       - name: Generate canonical SHA-256 manifest
         run: python3 tool/update_source_checksums.py
-
-      - name: Commit the refreshed manifest to this GitHub branch
+      - name: Commit refreshed manifest
         env:
           BRANCH_NAME: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
-
           if git diff --quiet -- SHA256SUMS.txt; then
             echo "SHA256SUMS.txt is already current."
             exit 0
           fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- SHA256SUMS.txt
-          git commit -m "chore(ci): refresh canonical source checksums [skip ci]"
+          git commit -m "chore(ci): refresh canonical source checksums"
           git push origin "HEAD:${BRANCH_NAME}"
