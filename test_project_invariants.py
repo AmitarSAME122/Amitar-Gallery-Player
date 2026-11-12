@@ -202,9 +202,28 @@ class ProjectInvariantTests(unittest.TestCase):
         self.assertLess(restore, verify_restore)
         self.assertLess(verify_restore, python_tests)
 
-    def test_ci_formatting_is_non_mutating_and_linux_bootstrap_is_not_repeated(self) -> None:
+    def test_ci_formats_dart_and_persists_changes_with_minimum_write_scope(self) -> None:
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        self.assertIn("dart format --output=none --set-exit-if-changed lib test", workflow)
+        self.assertIn("run: dart format lib test", workflow)
+        self.assertIn("run: dart format --output=none --set-exit-if-changed lib test", workflow)
+        self.assertIn("name: Collect tracked Dart files changed by formatting", workflow)
+        self.assertIn("name: Upload Dart formatter changes for safe branch persistence", workflow)
+
+        persist_start = workflow.index("  persist-dart-format:")
+        persist_end = workflow.index("  linux-android-web:", persist_start)
+        persist_job = workflow[persist_start:persist_end]
+        self.assertIn("needs: quality", persist_job)
+        self.assertIn("if: github.event_name != 'pull_request' && github.ref_type == 'branch'", persist_job)
+        self.assertIn("permissions:\n      contents: write", persist_job)
+        self.assertIn("actions/download-artifact@v8.0.2", persist_job)
+        self.assertIn('git diff --quiet "${GITHUB_SHA}" FETCH_HEAD -- "${formatted_files[@]}"', persist_job)
+        self.assertIn('git worktree add --detach "$worktree_dir" FETCH_HEAD', persist_job)
+        self.assertIn("python3 tool/update_source_checksums.py", persist_job)
+        self.assertIn('git add -- "${formatted_files[@]}" SHA256SUMS.txt', persist_job)
+        self.assertIn('git push origin "HEAD:${BRANCH_NAME}"', persist_job)
+
+        quality_job = workflow.split("  quality:", 1)[1].split("  persist-dart-format:", 1)[0]
+        self.assertNotIn("contents: write", quality_job)
         self.assertIn("tool/build.py all --skip-bootstrap --skip-checks", workflow)
 
     def test_ci_triggers_on_project_branch_and_transfers_verified_wrapper(self) -> None:
