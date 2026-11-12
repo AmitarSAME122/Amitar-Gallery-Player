@@ -67,6 +67,8 @@ jobs:
         run: flutter pub get
       - name: Generate and validate app icons
         run: dart run flutter_launcher_icons
+      - name: Apply available Dart analyzer quick fixes
+        run: dart fix --apply
       - name: Apply canonical Dart formatting
         run: dart format lib test
       - name: Verify canonical Dart formatting
