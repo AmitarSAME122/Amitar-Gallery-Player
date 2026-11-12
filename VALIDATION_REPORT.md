@@ -1,65 +1,79 @@
-# گزارش اصلاح و اعتبارسنجی — AmitarGalleryPlayer 1.0.0+1
+# گزارش اعتبارسنجی — اصلاح خطای Flutter Analyze
 
-تاریخ: ۹ نوامبر ۲۰۲۶  
-نوع تحویل: سورس بازبینی‌شده و پیکربندی‌شده برای انتشار چندسکویی؛ نه باینری از پیش‌ساخته‌شده.
+## ورودی CI بررسی‌شده
 
-## پیکربندی نسخهٔ اول
+- مخزن: `AmitarSAME122/Amitar-Gallery-Player`
+- شاخه: `Amitar`
+- Commit: `e334188d7d1ffbb43c3e68a4791b688edfa03e0b`
+- Workflow: `Verify and build AmitarGalleryPlayer`
+- Job متوقف‌شده: `Analyze and regression tests`
+- مرحلهٔ متوقف‌شده: `flutter analyze`
 
-| مؤلفه | مقدار تثبیت‌شده |
+## نتیجهٔ اجرای واقعی در GitHub Actions
+
+| مرحله | نتیجهٔ لاگ |
+|---|---|
+| Checkout شاخه | موفق |
+| تنظیم Java 17 و Flutter 3.47.9 | موفق |
+| Bootstrap میزبان‌های پلتفرم | موفق |
+| تولید و بررسی Source Manifest | موفق |
+| نصب وابستگی‌های Python | موفق |
+| تست‌های Python | ۶۲ از ۶۲ موفق |
+| `flutter pub get` | موفق |
+| تولید آیکون‌های پلتفرم | موفق |
+| `dart fix --apply` | ۱۳۳ اصلاح اعمال‌شده |
+| `dart format lib test` | ۳ فایل قالب‌بندی‌شده |
+| `flutter analyze` | ناموفق؛ ۱۶ مورد |
+
+### تشخیص دقیق Analyzer
+
+از ۱۶ مورد گزارش‌شده:
+
+- ۱۱ مورد `undefined_method` برای `XFile.fileSystem`؛
+- ۲ مورد `undefined_method` برای `XFile.scopedStorage`؛
+- یک مورد `file_names` برای نام عمدی ورودی برنامه؛
+- یک مورد `unnecessary_import` برای `dart:typed_data`؛
+- یک مورد `deprecated_member_use` برای `onReorder`.
+
+نسخهٔ حل‌شدهٔ `cross_file` در لاگ `0.3.5+5` است. کد شاخه هنوز سازنده‌های متعلق به API جدیدتر `0.4.x` را فراخوانی کرده است. Quick Fix خودکار، APIهای حذف‌شده را تبدیل نمی‌کند؛ به همین علت با وجود ۱۳۳ Quick Fix و اجرای موفق Formatter، Analyzer شکست خورده است.
+
+## اصلاحات موجود در بسته
+
+- `lib/AmitarGalleryPlayer.dart`: حذف استفاده از APIهای ناسازگار، استفاده از `universal_io` برای فایل‌های محلی، پل Android برای URIهای قدیمی `content://`، رفع سه پیام اطلاعاتی، اصلاح callback صف.
+- `pubspec.yaml` و `pubspec.lock`: عدم وابستگی مستقیم به `cross_file 0.4.x`؛ حفظ `cross_file 0.3.5+5` به‌صورت transitive.
+- `MainActivity.kt`: پیاده‌سازی MethodChannel با `ContentResolver`، I/O در executor، بافر ۶۴ KiB، محدودیت حجم و پاک‌سازی فایل ناقص در خطا.
+- `build.yml`: اجرای Quick Fix و Formatter، اعتبارسنجی نتیجه و Job مجزای ثبت تغییرات Formatter با دسترسی نوشتن محدود.
+- `bootstrap_platforms.py` و تست‌ها: حفظ MainActivity سفارشی و پوشش Regression برای bootstrap و APIهای مورد استفاده.
+
+## اعتبارسنجی مستقل انجام‌شده برای بسته
+
+| بررسی | نتیجه |
 |---|---:|
-| نسخهٔ برنامه | `1.0.0+1` |
-| Flutter stable در CI | `3.47.9` |
-| Dart | نسخهٔ همراه Flutter |
-| JDK هدف Android | `17` |
-| Android Gradle Plugin | `8.13.2` |
-| Gradle Wrapper | `8.14.6` |
-| Kotlin Gradle Plugin | `2.4.21` |
-| شناسهٔ Android | `com.amitar.amitar_gallery_player` |
+| `python3 -m compileall -q tool` | موفق |
+| `test_bootstrap_platforms.py` | ۱۸ از ۱۸ موفق |
+| `test_project_invariants.py` | ۲۴ از ۲۴ موفق |
+| `test_release_version.py` | ۳ از ۳ موفق |
+| تست‌های منتخب Python | ۴۵ از ۴۵ موفق |
+| تجزیهٔ YAML Workflow | موفق |
+| ZIP integrity و SHA-256 | موفق |
 
-نسخه‌ها به‌صورت یک مجموعهٔ سازگار تثبیت شده‌اند؛ ارتقای مستقل و آزمایش‌نشده به AGP 9 یا Gradle 9 انجام نشده است. SHA-256 توزیع Gradle 8.14.6 نوع `bin` برابر `7988ed071b2a07900e2ec715fca15c6ab72bce6db433af301fa7fa7e9407bd24` است. SHA-256 فایل Gradle Wrapper JAR مورد انتظار برابر `ad16bca46cb71bb5887c546860d93992aeee35c1fdaf4a242b0a612375d937e0` است. فایل Wrapper JAR در سورس نگهداری نمی‌شود؛ bootstrap آن را از commit ثابت c27417f در مخزن رسمی Gradle دریافت و با checksum رسمی اعتبارسنجی می‌کند. CI این JAR تأییدشده را از Job کیفیت به Jobهای ساخت پلتفرم منتقل می‌کند و در هر Job دوباره hash را بررسی می‌کند.
+تست‌های منتخب در یک fixture محلی Git اجرا شدند تا رفتار Manifest مبتنی بر Git index نیز قابل بررسی باشد. فایل `android/gradlew` در fixture دارای مجوز اجرایی شد؛ ZIPهای ساخته‌شده روی برخی میزبان‌ها لزوماً bit اجرایی Unix را نگه نمی‌دارند و بستهٔ اصلاحی این فایل را جایگزین نمی‌کند.
 
-## اصلاحات اعمال‌شده
+## محدودیت فایل منبع کوچک‌شده
 
-- تنظیمات واقعی `settings.gradle.kts`، `build.gradle.kts`، `gradle.properties`، Wrapper، bootstrap و تست‌ها با یک مجموعهٔ نسخهٔ واحد هماهنگ شدند.
-- فایل `android/local.properties` ممکن است در زمان اجرای `flutter create` به‌صورت محلی در Runner تولید شود؛ آزمون CI اکنون وضعیت Git index را بررسی می‌کند، نه نبود فایل موقت در working tree. مسیرهای محلی SDK و کلیدهای امضا در `.gitignore` هستند و فایل‌های محلی/امضا از manifest هش سورس نیز کنار گذاشته می‌شوند.
-- وابستگی مستقیم ناسازگار `cross_file ^0.4.0` حذف شد؛ `file_picker` نسخهٔ سازگار `cross_file 0.3.5+5` را به‌صورت transitive دریافت می‌کند. APIهای `XFile 0.4` از کد برنامه حذف شده‌اند؛ خواندن مسیرهای محلی با `universal_io` و خواندن URIهای قدیمی Android با پل محدود و جریانی `ContentResolver` انجام می‌شود.
-- URLهای lockfile به مخزن canonical یعنی `pub.dev` یکسان‌سازی شدند.
-- فایل‌های cache، خروجی build، فایل‌های IDE، cache پایتون و فایل پشتیبان قدیمی از بستهٔ سورس کنار گذاشته شدند.
-- اسکریپت‌های bootstrap میزبان‌های بومی iOS، macOS، Windows، Linux و Web را در runner مناسب ایجاد می‌کنند؛ تنظیم Android نیز idempotent است. Wrapper JAR از منبع upstream ثابت دریافت، checksum و ساختار آن بررسی، و سپس از طریق artifact کوتاه‌عمر بین runnerها منتقل می‌شود.
-- آیکون‌های Android adaptive، iOS، macOS، Windows، Linux و Web با کنترل ساختاری PNG/ICO و ارجاع manifest اعتبارسنجی می‌شوند.
-- اسکن کتابخانه/پوشه و واردسازی موبایل دارای سقف آیتم و بودجهٔ حافظه هستند؛ مسیرهای دسترسی فایل به مجوزهای پلتفرم محدود می‌مانند.
-- یک موتور پخش `media_kit` حفظ شده است؛ موتور موازی یا لایهٔ ذخیره‌سازی تکراری افزوده نشده است.
-- CI امضای اختیاری Android را پشتیبانی می‌کند. با تعریف هر چهار Secret با نام‌های `AMITAR_ANDROID_KEYSTORE_BASE64`، `AMITAR_ANDROID_STORE_PASSWORD`، `AMITAR_ANDROID_KEY_PASSWORD` و `AMITAR_ANDROID_KEY_ALIAS`، APK/AAB با کلید ناشر امضا می‌شوند. keystore فقط در `$RUNNER_TEMP` قرار می‌گیرد. پیکربندی ناقص باعث توقف build می‌شود؛ در نبود تمام Secretها خروجی صرفاً debug/QA خواهد بود.
-- خطای نگارشی DPI پوستر در changelog اصلاح شد؛ خروجی PNG پوستر A3 برابر ۳۰۰ DPI است.
-- آزمون عدم ثبت مسیر شخصی Android SDK به‌جای بررسی نبود فایل در working tree، Git index را بررسی می‌کند؛ در نتیجه `android/local.properties` تولیدشده توسط Flutter در CI موجب false negative نمی‌شود.
-- تولیدکنندهٔ `SHA256SUMS.txt` در Git checkout فقط فایل‌های ثبت‌شده در Git index را هش می‌کند و فایل‌های محلی `android/local.properties`، `android/key.properties` و Wrapper دانلودشده را کنار می‌گذارد. در Source archive فاقد `.git` نیز fallback صریح با همین exclusions فعال است.
-- فایل `.gitattributes` در بستهٔ اصلاحات وجود دارد تا ورودی فهرست SHA-256 نیز در مخزن Git ثبت شود.
-- manifest هش SHA-256 سورس بازسازی و برای همهٔ فایل‌های ثبت‌شده کنترل می‌شود.
+در ZIP ارسالی، محتوای `assets/` و `presentation/` عمداً حذف شده بود. به همین علت اجرای کامل مجموعهٔ تست روی آن ZIP، تست‌هایی را که به تصاویر برند، آیکون‌ها و پوستر وابسته‌اند با `FileNotFoundError` مواجه می‌کند. این خطاها از حذف فایل‌ها در بستهٔ ارسالی ناشی می‌شوند و دربارهٔ فایل‌های کامل شاخهٔ GitHub نتیجه‌گیری نمی‌کنند.
 
-## آزمون‌های اجراشده در این محیط
+همین‌طور Flutter و Dart SDK در محیط ساخت این بسته نصب نبودند؛ پس `flutter analyze`، `flutter test` و Build واقعی پلتفرم‌ها در این محیط اجرا نشده‌اند. نتیجهٔ نهایی Analyzer فقط پس از Commit کردن این بسته و اجرای CI واقعی مشخص می‌شود.
 
-- `python3 -m py_compile tool/*.py` — موفق.
-- `python3 -m unittest discover -s tool -p 'test_*.py' -v` — **۵۷ از ۵۷ آزمون موفق**؛ شامل bootstrap و checksum Wrapper، یکپارچگی تنظیم Android، مدیریت JDK، امضا در CI، آیکون‌های شش پلتفرم، ساخت fixture بستهٔ DEB، manifest و نسخهٔ انتشار.
-- `python3 tool/check_release_version.py --tag v1.0.0` — موفق؛ نسخهٔ `1.0.0` و build number `1` هماهنگ‌اند.
-- فایل‌های YAML workflow و Dependabot با parser بارگذاری شدند؛ شاخهٔ `Amitar`، پنج job، artifact مربوط به Wrapper و سه مرحلهٔ دریافت آن نیز با کنترل ساختاری بررسی شدند.
-- ZIP انتشار با `ZipFile.testzip()`، خواندن entryها و checksum کل بسته بررسی می‌شود؛ manifest SHA-256 داخلی نیز جداگانه تأیید می‌شود.
+## تأیید مورد انتظار در اجرای بعدی
 
-توجه: تست DEB از fixture بسته‌بندی استفاده می‌کند و اثبات نمی‌کند که باینری Flutter برنامه ساخته شده است. همین‌طور آزمون‌های Python جایگزین تحلیل Dart، اجرای تست Flutter یا تست روی دستگاه واقعی نیستند.
+پس از اعمال بسته، موارد زیر باید در GitHub Actions بررسی شوند:
 
-## مرز اعتبارسنجی باینری
+1. `flutter pub get` بدون تغییر مستقیم‌شدن `cross_file`.
+2. `dart fix --apply` بدون افزودن وابستگی غیرضروری.
+3. `dart format --output=none --set-exit-if-changed lib test` بدون تغییر باقی‌مانده.
+4. `flutter analyze` با صفر issue.
+5. `flutter test --reporter expanded`.
+6. Jobهای build برای Linux/Android/Web، Windows و macOS/iOS.
 
-در محیط این نشست Flutter، Dart، Gradle، Android SDK/NDK، Xcode و Visual Studio C++ موجود نیستند؛ Java نصب‌شده در محیط `21.0.12` است، درحالی‌که CI برای Android به‌طور صریح JDK `17` نصب می‌کند. بنابراین این محیط قادر به اجرای `flutter pub get`، `dart format`، `flutter analyze`، `flutter test` یا کامپایل واقعی و تولید installer نیست. خروجی تحویلی یک بستهٔ سورس آمادهٔ اجرای CI است، نه APK/EXE/DEB/DMG/IPA از پیش ساخته‌شده.
-
-## خروجی‌هایی که CI روی میزبان مناسب تولید می‌کند
-
-| میزبان ساخت | خروجی برنامه‌ریزی‌شده | نکتهٔ انتشار |
-|---|---|---|
-| Ubuntu/Linux | APKهای تفکیک‌شدهٔ ABI و AAB، Web ZIP، Linux TAR.GZ و DEB | Linux به GTK و libmpv سازگار نیاز دارد؛ AAB مستقیماً مثل APK نصب نمی‌شود. |
-| Windows | ZIP قابل‌حمل و Setup EXE با Inno Setup | امضای Authenticode در پیکربندی فعلی انجام نمی‌شود. |
-| macOS | APP ZIP و DMG | امضای Developer ID و notarization در پیکربندی پیش‌فرض نیست. |
-| iOS | آرشیو ZIP شامل `.app` بدون امضا | IPA نصب‌شونده به گواهی، provisioning و ExportOptions معتبر ناشر نیاز دارد. |
-| Web | ZIP سایت استاتیک | خروجی وب است، نه installer دسکتاپ؛ قابلیت decode تابع مرورگر است. |
-
-ساخت Windows باید روی Windows، ساخت macOS/iOS روی macOS و ساخت Linux/Android/Web روی runner مناسب انجام شود. یک ماشین یا یک باینری واحد نمی‌تواند جایگزین SDK و امضای اختصاصی تمام پلتفرم‌ها شود. همچنین پشتیبانی «تمام فرمت‌های رسانه‌ای روی تمام سیستم‌ها» قابل تضمین نیست؛ پوشش codec به libmpv، بستهٔ codec، معماری و runtime هر پلتفرم بستگی دارد و Web محدودیت decoder مرورگر را دارد.
-
-برای تأیید انتشار نسخهٔ واقعی، ابتدا repository را در GitHub قرار دهید، سپس workflow را اجرا کنید و موفقیت jobهای quality، linux-android-web، windows و apple را بررسی کنید. پیش از انتشار عمومی نیز نصب و پخش رسانه باید روی دستگاه‌ها و مرورگرهای هدف آزموده شود.
+این گزارش هیچ‌یک از Buildهای بعدی را پیشاپیش موفق اعلام نمی‌کند.

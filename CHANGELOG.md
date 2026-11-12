@@ -66,3 +66,13 @@ Python build-tool tests and packaging checks can run without Flutter. Dart forma
 - Expanded Dart regression tests for extension normalization, playlist classification and malformed persisted records.
 
 - Added a deterministic source SHA-256 manifest generator and regression check so the checked-in checksum file cannot silently become stale.
+
+### Flutter Analyze blocker correction — CI run e334188
+
+- Replaced all app-side uses of `XFile.fileSystem` and `XFile.scopedStorage`, which were incompatible with the `cross_file 0.3.5+5` version selected by `file_picker 13.3.2`.
+- Removed the unnecessary direct `cross_file` dependency and retained the compatible transitive package selected by `file_picker`.
+- Removed the unnecessary `dart:typed_data` import while preserving `Uint8List` access through Flutter services.
+- Kept the required `AmitarGalleryPlayer.dart` filename with a file-scoped analyzer suppression rather than renaming the project entrypoint.
+- Migrated the queue UI to `ReorderableListView.onReorderItem` and corrected the reorder index handling.
+- Added bounded Android `ContentResolver` compatibility for persisted `content://` references.
+- Updated this report against the actual CI output: 62 Python tooling tests passed; the remaining 16 Analyzer findings were 13 obsolete XFile API calls and 3 informational lints.

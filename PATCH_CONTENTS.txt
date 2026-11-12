@@ -7,6 +7,7 @@ tool/bootstrap_platforms.py
 tool/test_bootstrap_platforms.py
 tool/test_project_invariants.py
 DEPENDENCIES.md
-VALIDATION_REPORT.md
 CHANGELOG.md
 README_FA.md
+VALIDATION_REPORT.md
+PATCH_CONTENTS.txt
