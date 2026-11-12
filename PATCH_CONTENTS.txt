@@ -1,17 +1,15 @@
-فایل‌های داخل بسته (مسیرها نسبت به ریشهٔ مخزن):
-
 .github/workflows/build.yml
-CHANGELOG.md
-DEPENDENCIES.md
+.github/workflows/refresh-source-manifest.yml
 README_FA.md
 VALIDATION_REPORT.md
 PATCH_CONTENTS.txt
-android/app/src/main/kotlin/com/amitar/amitar_gallery_player/MainActivity.kt
-lib/AmitarGalleryPlayer.dart
-pubspec.lock
-pubspec.yaml
+tool/apply_ci_snapshot.py
+tool/collect_ci_snapshot.py
+tool/validate_source_contracts.py
+tool/test_ci_snapshot.py
+tool/test_workflow_tool_paths.py
 tool/bootstrap_platforms.py
 tool/test_bootstrap_platforms.py
+tool/test_brand_assets.py
+tool/test_build.py
 tool/test_project_invariants.py
-
-مهم: پوشه‌های assets/ و presentation/ و فایل SHA256SUMS.txt عمداً داخل بسته نیستند.

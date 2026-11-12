@@ -1,42 +1,37 @@
-# گزارش اعتبارسنجی بستهٔ اصلاح کد اصلی
+# Validation report — CI helper-file restoration
 
-## ورودی
+## Failure confirmed from the latest Actions log
 
-- Repository: `AmitarSAME122/Amitar-Gallery-Player`
-- Branch: `Amitar`
-- Commit دیده‌شده در آخرین Log: `b79c7067d3db287df8dc5a04d2b46f9fd5dcdbd9`
-- Failed step: `flutter analyze`
+The run completed all 62 existing Python tests and `flutter pub get`, then exited at the step `Validate source and resolved dependency contracts` because `tool/validate_source_contracts.py` was absent from the checked-out repository.
 
-## خطای واقعی
+The workflow revision used by the run also calls the CI snapshot collector and applier. The uploaded reduced source ZIP did not contain those files either. Therefore adding only the validator would have exposed the next missing-file failure later in the run.
 
-آخرین Log هنوز ۱۱ فراخوانی `XFile.fileSystem` و ۲ فراخوانی `XFile.scopedStorage` دارد؛ به‌علاوهٔ سه مورد informational مربوط به `file_names`، `unnecessary_import` و `deprecated_member_use`. `dart fix --apply` تعداد ۱۳۳ quick fix اعمال کرده، اما APIهای ناموجود را تبدیل نمی‌کند. همچنین همان مرحله به علت import مستقیم `cross_file` آن را در `pubspec.yaml` مستقیم کرده است.
+## Files restored/aligned by this patch
 
-## تغییر کد
+- `tool/validate_source_contracts.py`
+- `tool/collect_ci_snapshot.py`
+- `tool/apply_ci_snapshot.py`
+- `tool/test_ci_snapshot.py`
+- synchronized versions of `bootstrap_platforms.py` and its regression tests
+- synchronized `test_project_invariants.py`
+- `test_workflow_tool_paths.py`, which verifies every `python tool/*.py` / `python3 tool/*.py` invocation in both workflows points to a committed file
+- synchronized `build.yml` and manual-only `refresh-source-manifest.yml`
 
-- تمام importها و فراخوانی‌های XFile از فایل اصلی حذف شدند.
-- مسیرهای فایل عادی به `universal_io.File` منتقل شدند.
-- URIهای قدیمی Android از MethodChannel/ContentResolver عبور می‌کنند.
-- مسیر پخش URI ذخیره‌شده پس از راه‌اندازی مجدد اصلاح شد تا به `readBytes` موقت وابسته نباشد.
-- قید مستقیم cross_file از `pubspec.yaml` حذف شد و Lockfile آن را transitive ثبت می‌کند.
-- صف پخش از API جدید `onReorderItem` استفاده می‌کند.
+## Validation actually performed
 
-## آزمون‌های اجراشده
+The patch was overlaid onto the uploaded reduced source ZIP in a temporary test checkout. The Unix executable bit on `android/gradlew` was restored to match the mode confirmed by the actual GitHub-run tests, because ZIP extraction does not reliably preserve Git executable mode.
 
-| آزمون | نتیجه |
-|---|---:|
-| Bootstrap | ۱۸/۱۸ موفق |
-| Project invariants | ۲۵/۲۵ موفق |
-| Release version | ۳/۳ موفق |
-| کل تست‌های منتخب | ۴۶/۴۶ موفق |
-| Python compileall | موفق |
-| Workflow YAML parse | موفق |
-| نبود import و APIهای XFile در Dart | موفق |
-| ZIP integrity | موفق |
+Results:
 
-برای اجرای تست‌های وابسته به Git Manifest، سورس در یک مخزن Git آزمایشی قرار گرفت، bit اجرایی `android/gradlew` که ZIP حمل نمی‌کند بازیابی شد و Manifest از روی checkout آزمایشی تولید شد.
+- `tool/validate_source_contracts.py`: passed
+- `tool/test_workflow_tool_paths.py`: 2 tests passed
+- complete Python discovery over `tool/test_*.py`: 73 tests, `OK (skipped=2)`
+- source-checksum generator and tracked-manifest verification: passed in a temporary Git repository
+- both workflow YAML files: parsed successfully with PyYAML BaseLoader
+- patch ZIP integrity: passed
 
-## محدودیت‌ها
+The two skipped test groups depend on brand asset files intentionally omitted from the uploaded reduced source ZIP.
 
-ZIP سورس کاربر عمداً پوشه‌های `assets/` و `presentation/` را حذف کرده است. بنابراین تست‌های بصری/برندینگ وابسته به آن فایل‌ها در این محیط قابل اجرا نیستند و این گزارش آن‌ها را موفق اعلام نمی‌کند.
+## Not claimed
 
-Flutter/Dart SDK در محیط آماده‌سازی حاضر نبود. بنابراین اجرای واقعی `flutter pub get`، `dart fix`، `dart format`، `flutter analyze`، `flutter test`، Gradle و Buildهای Android، Web، Linux، Windows، macOS و iOS از این محیط ممکن نشد. آخرین CI واقعی ۶۲ تست Python و `flutter pub get` را موفق نشان داده، اما Analyzer را شکست داده است. اجرای CI پس از جایگزینی کد اصلی هنوز لازم است.
+Flutter/Dart SDK was not available in the patch-preparation environment. No claim is made that `flutter analyze`, `flutter test`, or native platform builds have passed. These remain to be confirmed by the next GitHub Actions run after the files are committed.
