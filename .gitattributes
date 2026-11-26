@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.png binary
+*.pdf binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.zip binary
+*.aab binary
+*.apk binary
+*.exe binary
+*.dmg binary
+*.deb binary
+*.tar.gz binary
