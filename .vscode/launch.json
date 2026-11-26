@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "AmitarGalleryPlayer (Select device)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/AmitarGalleryPlayer.dart"
+        },
+        {
+            "name": "AmitarGalleryPlayer (Windows desktop)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "windows",
+            "program": "lib/AmitarGalleryPlayer.dart"
+        },
+        {
+            "name": "AmitarGalleryPlayer (Chrome)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "chrome",
+            "program": "lib/AmitarGalleryPlayer.dart"
+        }
+    ]
+}

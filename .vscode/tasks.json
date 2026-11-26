@@ -1,0 +1,109 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Amitar: Bootstrap platforms",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/bootstrap_platforms.py"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Pub get",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/run_sdk.py",
+                "flutter",
+                "pub",
+                "get"
+            ],
+            "problemMatcher": [],
+            "dependsOn": [
+                "Amitar: Bootstrap platforms"
+            ]
+        },
+        {
+            "label": "Amitar: Generate icons",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/generate_platform_icons.py"
+            ],
+            "dependsOn": [
+                "Amitar: Pub get"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Verify icons",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/verify_platform_icons.py"
+            ],
+            "dependsOn": [
+                "Amitar: Generate icons"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Analyze",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/run_sdk.py",
+                "flutter",
+                "analyze"
+            ],
+            "problemMatcher": [
+                "$dart-analyzer"
+            ]
+        },
+        {
+            "label": "Amitar: Test",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/run_sdk.py",
+                "flutter",
+                "test",
+                "--reporter",
+                "expanded"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Build Android",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/build.py",
+                "android"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Build Web",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/build.py",
+                "web"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Amitar: Build Windows",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "tool/build.py",
+                "windows"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
